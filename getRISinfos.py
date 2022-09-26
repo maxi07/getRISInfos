@@ -257,7 +257,7 @@ if __name__ == "__main__":
 	# Get filepath for saving output
 	filepathResult = ""
 	while not filepathResult:
-		filepathResult = input(r"Enter filepath for saving result (e.g. C:\Users\Max\): ")
+		filepathResult = input(r"Enter filepath for saving result (e.g. C:\Users\Max): ")
 		if not os.path.exists(filepathResult):
 			printerror("File does not exist!")
 			filepathResult = None
