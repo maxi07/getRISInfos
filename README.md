@@ -1,6 +1,8 @@
 # GetRISInfos
 This python program grabs an _.ris_ file (multiple entries possible), scans every entry and adds missing info to the entry. As source the [Crossref API](https://api.crossref.org) is being used. To work, each RIS entry must have a valid DOI number.
 
+<img src="https://github.com/maxi07/getRISInfos/blob/master/doc/app_screenshot1.png?raw=true" align="center" width="800"/>
+
 ## Added data
 Currently supported data to be added are:
 - Abstract
