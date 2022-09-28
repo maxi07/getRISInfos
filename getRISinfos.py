@@ -271,7 +271,7 @@ def doAnalysis(entry):
 					entry['journal_name'] = journal
 					foundItems +=1
 					foundJournal +=1
-			if not 'url' or not 'file_attachments1' or not 'file_attachments2' in entry:
+			if not 'url' and not 'file_attachments1' and not 'file_attachments2' in entry:
 				printverbose("No document url was detected, searching online.")
 				url = readURL(jsoninfo)
 				if url:
@@ -327,6 +327,7 @@ def doAnalysis(entry):
 					additionalAuthors = []
 					otherAuthors = []
 					for author in authors:
+						foundAuthors +=1			
 						if not author:
 							continue
 						if author['sequence'] == "first":
@@ -355,7 +356,7 @@ def doAnalysis(entry):
 							currentAuthorsString += str(cA)
 						for nA in newAuthors:
 							newAuthorsString += str(nA)
-						print("Current authors:" + currentAuthorsString)
+						print("Current authors: " + currentAuthorsString)
 						print("New authors: " + newAuthorsString)
 						choice = query_yes_no("Replace authors?")
 						if choice == True:
@@ -367,7 +368,6 @@ def doAnalysis(entry):
 							entry['first_authors'] = firstAuthors
 							entry['secondary_authors'] = additionalAuthors
 					foundItems +=1
-					foundAuthors +=1			
 		else:
 			printverbosewarning("(" + str(currentcount) + "/" + str(len(entries)) + ") DOI was not found for " + str(entry['title']))
 			noDOI +=1
@@ -449,6 +449,7 @@ if __name__ == "__main__":
 		print("Added journal names:\t" + printgreen(str(foundJournal)))
 		print("Added document urls:\t" + printgreen(str(foundUrl)))
 		print("Added languages:\t" + printgreen(str(foundLanguage)))
+		print("Added authors:\t" + printgreen(str(foundAuthors)))
 		print("Documents without DOI:\t" + printyellow(str(noDOI)))
 		print("Documents not found:\t" + printyellow(str(notFound)))
 		input("Press enter to exit.")
