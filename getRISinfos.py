@@ -38,7 +38,7 @@ try:
 	import rispy
 	import urllib.request, json
 	from argparse import ArgumentParser
-	from datetime import datetime
+	from datetime import datetime, date
 	from tqdm import tqdm
 	from colorama import init
 	init()
@@ -52,23 +52,28 @@ except Exception as ex:
 
 # Set var
 verboseoutput = False
+askConfirm = False
 foundItems = 0
 foundAbstract = 0
 foundReferenceType = 0
 foundJournal = 0
 foundUrl = 0
+foundAuthors = 0
 foundLanguage = 0
+foundPublisher = 0
 notFound = 0
 noDOI = 0
 finalentries = [{}]
 
-
 # Parse Arguments
 parser = ArgumentParser()
 parser.add_argument("--verbose", "-v", help="Print detailed output.", action="store_true")
+parser.add_argument("--confirm", "-c", help="Ask confirmation before replacing details.", action="store_true")
 args = parser.parse_args()
 if args.verbose:
 	verboseoutput = True
+if args.confirm:
+	askConfirm = True
 
 # Calls crossref with given DOI number and downloads input
 def getCrossref(doi):
@@ -83,7 +88,7 @@ def getCrossref(doi):
 		printverboseerror(str(ex))
 		return None
 
-def readAbstract(data):
+def readAbstract(data) -> str:
 	try:
 		if 'abstract' in data['message']:
 			abstract_raw = str(data['message']['abstract'])
@@ -113,7 +118,7 @@ def readAbstract(data):
 	except Exception as e:
 		printverboseerror("Failed reading abstract. " + str(e))
 
-def readReferenceType(data):
+def readReferenceType(data) -> str:
 	try:
 		if 'type' in data['message']:
 			type = str(data['message']['type'])
@@ -125,7 +130,7 @@ def readReferenceType(data):
 	except Exception as e:
 		printverboseerror("Failed reading type. " + str(e))
 
-def readJournal(data):
+def readJournal(data) -> str:
 	try:
 		if 'container-title' in data['message']:
 			journal = str(data['message']['container-title'])
@@ -139,7 +144,7 @@ def readJournal(data):
 	except Exception as e:
 		printverboseerror("Failed reading journal. " + str(e))
 
-def readURL(data):
+def readURL(data) -> str:
 	try:
 		if 'link' in data['message']:
 			link = str(data['message']['link'][0]["URL"])
@@ -151,7 +156,7 @@ def readURL(data):
 	except Exception as e:
 		printverboseerror("Failed reading document url. " + str(e))
 
-def readLanguage(data):
+def readLanguage(data) -> str:
 	try:
 		if 'language' in data['message']:
 			language = str(data['message']['language'])
@@ -164,6 +169,62 @@ def readLanguage(data):
 	except Exception as e:
 		printverboseerror("Failed reading language. " + str(e))
 
+def readPublisher(data) -> str:
+	try:
+		if 'publisher' in data['message']:
+			publisher = str(data['message']['publisher'])
+			printverbose("Found publisher: " + printgreen(publisher))
+			return publisher
+		else:
+			printverbosewarning("No publisher was found online")
+			return None
+
+	except Exception as e:
+		printverboseerror("Failed reading language. " + str(e))
+
+def readAuthors(data) -> list[dict]:
+	try:
+		if 'author' in data['message']:
+			authorlist = [{}]
+			for author in data['message']['author']:
+				if author['sequence'] == "first":
+					authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "first"})
+					printverbose("Found first author: " + printgreen(author['family'] + ", " + author['given']))
+				elif author['sequence'] == "additional":
+					authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "additional"})
+					printverbose("Found additional author: " + printgreen(author['family'] + ", " + author['given']))
+				else:
+					authorlist.append({'name:': author['family'] + ", " + author['given'], 'sequence': "none"})
+					printverbose("Found author: " + printgreen(author['family'] + ", " + author['given']))
+			return authorlist
+		else:
+			printverbosewarning("No author was found online")
+			return None
+
+	except Exception as e:
+		printverboseerror("Failed reading language. " + str(e))
+
+def query_yes_no(question, default="yes"):
+    valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+
+    while True:
+        print(question + prompt)
+        choice = input().lower()
+        if default is not None and choice == "":
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            print("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
+
 def doAnalysis(entry):
 	global foundItems
 	global foundAbstract
@@ -171,6 +232,8 @@ def doAnalysis(entry):
 	global foundJournal
 	global foundUrl
 	global foundLanguage
+	global foundPublisher
+	global foundAuthors
 	global notFound
 	global noDOI
 	global finalentries
@@ -224,6 +287,87 @@ def doAnalysis(entry):
 					entry['language'] = language
 					foundItems +=1
 					foundLanguage +=1
+			if not 'access_date' in entry:
+				printverbose("No access date was detected, adding todays date.")
+				entry['access_date'] = str(date.today())
+			if not 'publisher' in entry:
+				printverbose("No publisher was detected, searching online.")
+				publisher = readPublisher(jsoninfo)
+				if publisher:
+					# Add publisher to dictionary
+					entry['publisher'] = publisher
+					foundItems +=1
+					foundPublisher +=1
+			if not 'authors' and not 'first_authors' and not 'secondary_authors' and not 'subsidiary_authors' in entry:
+				printverbose("No author was detected, searching online.")
+				authors = readAuthors(jsoninfo)
+				if authors:
+					# Add authors to dictionary
+					firstAuthors = []
+					additionalAuthors = []
+					otherAuthors = []
+					for author in authors:
+						if author['sequence'] == "First":
+							firstAuthors.append(author['name'])
+						elif author['sequence'] == "Additional":
+							additionalAuthors.append(author['name'])
+						else:
+							otherAuthors.append(author['name'])
+					entry['authors'] = otherAuthors
+					entry['first_authors'] = firstAuthors
+					entry['second_authors'] = additionalAuthors
+					foundItems +=1
+					foundAuthors +=1
+			if 'authors' or 'first_authors' or 'secondary_authors' or 'subsidiary_authors' in entry:
+				printverbose("Authors were detected, searching online for additions.")
+				authors = readAuthors(jsoninfo)
+				if authors:
+					# Add authors to dictionary
+					firstAuthors = []
+					additionalAuthors = []
+					otherAuthors = []
+					for author in authors:
+						if not author:
+							continue
+						if author['sequence'] == "first":
+							firstAuthors.append(author['name'])
+						elif author['sequence'] == "additional":
+							additionalAuthors.append(author['name'])
+						else:
+							otherAuthors.append(author['name'])
+					if askConfirm == True:
+						currentAuthors = []
+						# Add all current author to one string
+						if entry.get('authors'):
+							currentAuthors.append(entry.get('authors'))
+						if entry.get('first_authors'):
+							currentAuthors.append(entry.get('first_authors'))
+						if entry.get('secondary_authors'):
+							currentAuthors.append(entry.get('secondary_authors'))
+						if entry.get('subsidiary_authors'):
+							currentAuthors.append(entry.get('subsidiary_authors'))
+
+						# Add all new authors to string
+						newAuthors = firstAuthors + additionalAuthors + otherAuthors
+						currentAuthorsString = ""
+						newAuthorsString = ""
+						for cA in currentAuthors:
+							currentAuthorsString += str(cA)
+						for nA in newAuthors:
+							newAuthorsString += str(nA)
+						print("Current authors:" + currentAuthorsString)
+						print("New authors: " + newAuthorsString)
+						choice = query_yes_no("Replace authors?")
+						if choice == True:
+							entry['authors'] = otherAuthors
+							entry['first_authors'] = firstAuthors
+							entry['secondary_authors'] = additionalAuthors
+					else:
+							entry['authors'] = otherAuthors
+							entry['first_authors'] = firstAuthors
+							entry['secondary_authors'] = additionalAuthors
+					foundItems +=1
+					foundAuthors +=1			
 		else:
 			printverbosewarning("(" + str(currentcount) + "/" + str(len(entries)) + ") DOI was not found for " + str(entry['title']))
 			noDOI +=1
