@@ -32,6 +32,7 @@ def printblue(msg) -> str:
 	return('\033[34m' + str(msg) + '\033[0m')
 
 # Imports
+import mimetypes
 import os
 try:
 	from pathlib import Path
@@ -41,6 +42,8 @@ try:
 	from datetime import datetime, date
 	from tqdm import tqdm
 	from colorama import init
+	import requests
+	import traceback
 	init()
 except ModuleNotFoundError as ex:
     printerror("The app could not be started, a module is missing.")
@@ -51,8 +54,10 @@ except Exception as ex:
 	exit(2)
 
 # Set var
+filepathResult = ""
 verboseoutput = False
 askConfirm = False
+getPDF = False
 foundItems = 0
 foundAbstract = 0
 foundReferenceType = 0
@@ -61,6 +66,7 @@ foundUrl = 0
 foundAuthors = 0
 foundLanguage = 0
 foundPublisher = 0
+downloadedPdfs = 0
 notFound = 0
 noDOI = 0
 finalentries = [{}]
@@ -69,14 +75,18 @@ finalentries = [{}]
 parser = ArgumentParser()
 parser.add_argument("--verbose", "-v", help="Print detailed output.", action="store_true")
 parser.add_argument("--confirm", "-c", help="Ask confirmation before replacing details.", action="store_true")
+parser.add_argument("--getpdf", "-p", help="Try to download pdf if available.", action="store_true")
+
 args = parser.parse_args()
 if args.verbose:
 	verboseoutput = True
 if args.confirm:
 	askConfirm = True
+if args.getpdf:
+	getPDF = True
 
 # Calls crossref with given DOI number and downloads input
-def getCrossref(doi):
+def getCrossref(doi: str) -> json:
 	try:
 		with urllib.request.urlopen("http://api.crossref.org/works/" + str(doi)) as url:			
 			data = json.load(url)
@@ -87,6 +97,62 @@ def getCrossref(doi):
 		printverboseerror("Failed downloading data.")
 		printverboseerror(str(ex))
 		return None
+
+# Try to find a pdf to download
+def downloadPDF(data: json):
+	"""
+	Downloads the file if the mimetype pdf is detected.
+	"""
+	try:
+		if 'link' in data['message']:
+			for url in data['message']['link']:
+				if url['content-type'] == "unspecified":
+					filename = data['message']['title'][0]
+					filename = filename[:75] if len(filename) > 75 else filename
+					success = downloadFile(url['URL'], filename)
+					if success:
+						downloadedPdfs+=1
+						break
+				elif url['content-type'] == "application/pdf":
+					filename = data['message']['title'][0]
+					filename = filename[:75] if len(filename) > 75 else filename
+					success = downloadFile(url['URL'], filename)
+					if success:
+						downloadedPdfs+=1
+						break
+				else:
+					printverbosewarning("No PDF could be found.")
+		else:
+			printverbosewarning("No PDF could be found.")
+	except Exception:
+		printverboseerror("Failed retrieving PDF.")
+		printverboseerror(traceback.format_exc())
+
+def downloadFile(url: str, name: str) -> bool:
+	"""
+	Checks mimetype, if PDF and download successfull returns True
+	"""
+	try:
+		# Guess mimetype
+		mimetype = mimetypes.guess_type(url)
+		if mimetype[0] == ("application/pdf"):
+			printverbose("Detected " + url + " as PDF file.")
+			r = requests.get(url, allow_redirects=True)
+			filename = name + ".pdf"
+			p = Path(filepathResult / filename)
+			with open(p, 'wb') as output:
+				content = requests.get(url, stream=True).content
+				output.write(content)
+				printverbose("Saved PDF at " + printgreen(str(p.absolute())))
+				return True
+		else:
+			printverbosewarning("Requested filetype is not PDF, skipping download.")
+			return False
+	except Exception:
+		printverboseerror("Failed downloading pdf. ")
+		printverboseerror(traceback.format_exc())
+		return False
+
 
 def readAbstract(data) -> str:
 	try:
@@ -271,7 +337,7 @@ def doAnalysis(entry):
 					entry['journal_name'] = journal
 					foundItems +=1
 					foundJournal +=1
-			if not 'url' and not 'file_attachments1' and not 'file_attachments2' in entry:
+			if not 'url' or not 'file_attachments1' or not 'file_attachments2' in entry:
 				printverbose("No document url was detected, searching online.")
 				url = readURL(jsoninfo)
 				if url:
@@ -327,7 +393,6 @@ def doAnalysis(entry):
 					additionalAuthors = []
 					otherAuthors = []
 					for author in authors:
-						foundAuthors +=1			
 						if not author:
 							continue
 						if author['sequence'] == "first":
@@ -336,6 +401,7 @@ def doAnalysis(entry):
 							additionalAuthors.append(author['name'])
 						else:
 							otherAuthors.append(author['name'])
+						foundAuthors +=1			
 					if askConfirm == True:
 						currentAuthors = []
 						# Add all current author to one string
@@ -368,6 +434,8 @@ def doAnalysis(entry):
 							entry['first_authors'] = firstAuthors
 							entry['secondary_authors'] = additionalAuthors
 					foundItems +=1
+			if getPDF == True:
+				downloadPDF(jsoninfo)
 		else:
 			printverbosewarning("(" + str(currentcount) + "/" + str(len(entries)) + ") DOI was not found for " + str(entry['title']))
 			noDOI +=1
@@ -399,7 +467,6 @@ if __name__ == "__main__":
 			filepathOriginal = None
 
 	# Get filepath for saving output
-	filepathResult = ""
 	while not filepathResult:
 		filepathResult = input(r"Enter filepath for saving result (e.g. C:\Users\Max): ")
 		if not os.path.exists(filepathResult):
@@ -412,6 +479,7 @@ if __name__ == "__main__":
 		# Test if abstract ends with 
 		if filepathResult.endswith('"'):
 			filepathResult = filepathResult[:-1]
+		filepathResult = Path(filepathResult)
 
 
 	try:
@@ -449,7 +517,9 @@ if __name__ == "__main__":
 		print("Added journal names:\t" + printgreen(str(foundJournal)))
 		print("Added document urls:\t" + printgreen(str(foundUrl)))
 		print("Added languages:\t" + printgreen(str(foundLanguage)))
-		print("Added authors:\t" + printgreen(str(foundAuthors)))
+		print("Added authors:\t\t" + printgreen(str(foundAuthors)))
+		if getPDF == True:
+			print("Downloaded PDFs:\t" + printgreen(str(downloadedPdfs)))
 		print("Documents without DOI:\t" + printyellow(str(noDOI)))
 		print("Documents not found:\t" + printyellow(str(notFound)))
 		input("Press enter to exit.")
