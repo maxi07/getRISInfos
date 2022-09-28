@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--verbose"]
+            "args": ["--verbose", "--confirm"]
         },
         {
             "name": "Python: Standard",
