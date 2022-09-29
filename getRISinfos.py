@@ -32,6 +32,7 @@ def printblue(msg) -> str:
 	return('\033[34m' + str(msg) + '\033[0m')
 
 # Imports
+from multiprocessing import Pool
 import os
 try:
 	from pathlib import Path
@@ -55,6 +56,7 @@ except Exception as ex:
 
 # Set var
 filepathResult = ""
+currentcount = 0		
 verboseoutput = False
 askConfirm = False
 getPDF = False
@@ -71,6 +73,7 @@ successfullReverseChecks = 0
 downloadedPdfs = 0
 notFound = 0
 noDOI = 0
+totalCount = 0
 finalentries = [{}]
 
 # Parse Arguments
@@ -127,12 +130,11 @@ def getCrossrefReverse(title: str, author: str) -> json:
 		return None
 
 # Try to find a pdf to download
-def downloadPDF(urllist: list):
+def downloadPDF(urllist: list, filename):
 	"""
 	Downloads the file if the mimetype pdf is detected.
 	"""
 	global downloadedPdfs
-	filename = entry['title']
 	filename = filename[:75] if len(filename) > 75 else filename
 	filename = re.sub('[^A-Za-z0-9 ]+', '', filename) # Remove unwanted chars
 	for url in urllist:
@@ -308,19 +310,21 @@ def checkEntry(entry: dict):
 	global successfullReverseChecks
 	global notFound
 	global noreverse
+	global currentcount
+	global totalCount
 	# Check if DOI
 	if 'doi' in entry:
 		printverbose("")
-		printverbose("(" + str(currentcount) + "/" + str(len(entries)) + ") Reading info for DOI " + printblue(entry['doi']))		
+		printverbose("(" + str(currentcount) + "/" + str(totalCount) + ") Reading info for DOI " + printblue(entry['doi']))		
 		doAnalysis(entry)
 	elif noreverse == True:
-		printverbosewarning("(" + str(currentcount) + "/" + str(len(entries)) + ") No DOI found, reverse lookup is disabled.")
+		printverbosewarning("(" + str(currentcount) + "/" + str(totalCount) + ") No DOI found, reverse lookup is disabled.")
 	elif 'title' and 'authors' in entry: # Do reverse search with title and author
 		try:
 			# Encode title
 			printverbose("")
 			title = str(entry['title'])
-			logMessage = "(" + str(currentcount) + "/" + str(len(entries)) + ") No DOI detected, starting reverse search with title " + printblue(title[:50] + "...")
+			logMessage = "(" + str(currentcount) + "/" + str(totalCount) + ") No DOI detected, starting reverse search with title " + printblue(title[:50] + "...")
 
 			# Get first author
 			firstAuthor = str(entry["authors"][0])		
@@ -497,7 +501,7 @@ def doAnalysis(entry: dict):
 
 		if getPDF == True:
 			if 'url' or 'file_attachments1' or 'file_attachments2' in entry:
-				downloadPDF(urllist)			
+				downloadPDF(urllist, str(entry['title']))			
 
 		# Add dict entry to new list
 		finalentries.append(entry)
@@ -566,6 +570,7 @@ if __name__ == "__main__":
 		p = Path('tests', 'data', filepathOriginal)
 		entries = rispy.load(p, encoding='utf-8')
 		# Create new dictionary for later final output writing
+		totalCount = len(entries)
 		print("Detected " + printblue(str(len(entries))) + " items in ris file.")
 		currentcount = 0
 		if verboseoutput == True:
