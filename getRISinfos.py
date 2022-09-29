@@ -43,6 +43,8 @@ try:
 	from tqdm import tqdm
 	from colorama import init
 	import traceback
+	from difflib import SequenceMatcher
+	from urllib.parse import quote  
 	import re
 	init()
 except ModuleNotFoundError as ex:
@@ -102,32 +104,92 @@ def getCrossref(doi: str) -> json:
 			if data['status'] == 'ok':
 				printverbose("Successfully retrieved JSON from Crossref for DOI " + printblue(str(doi)))
 			return data
+	except urllib.error.HTTPError as e:
+		if e.code == 404:
+			printverbosewarning("Crossref couldn't match " + doi)
+		else:
+			printverboseerror("Crossref returned " + str(e.code))
 	except Exception as ex:
 		printverboseerror("Failed downloading data from Crossref.")
 		printverboseerror(traceback.format_exc())
 		return None
 
-# Calls crossref with given title and downloads input
 def getCrossrefReverse(title: str, author: str) -> json:
+	"""
+	Calls crossref with given title and downloads input"""
 	try:
 		# Encode title
+		originalTitle = title
 		title = title.replace(" ", "+")
 		title = re.sub('[^A-Za-z0-9+ ]+', '', title)
-		searchURL = r"https://api.crossref.org/works?rows=1&query.title=" + title
+		searchResults = 5
+		confidenceLevel = 0.85
+		searchURL = r"https://api.crossref.org/works?rows=" + str(searchResults) + r"&query.title=" + title
 		if author:
 			author = author.replace(",", "")
 			author = author.replace(" ", "+")
 			author = author.replace(".", "")
-			searchURL += "&query.author=" + author
-		with urllib.request.urlopen(searchURL) as url:			
+			searchURL += "&query.author=" + quote(author)
+		with urllib.request.urlopen(searchURL) as url:	# Test with author		
 			data = json.load(url)
 			if data['status'] == 'ok':
-				printverbose("Successfully retrieved JSON from Crossref by reverse check.")
-			return data
+				# test if title is the same
+				for i in range(len(data['message']['items'])):
+					if 'title' and 'DOI' in data['message']['items'][i]:					
+						confidence = similar(originalTitle[:100], data['message']['items'][i]['title'][0][:100])
+						if confidence >= confidenceLevel:
+							printverbose(printgreen("Successfully retrieved JSON from Crossref by reverse check, confidence: " + str(round(confidence * 100, 1)) + "%."))
+							printverbose("Original title:\t\t" + originalTitle)
+							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]))
+							return str(data['message']['items'][i]['DOI'])
+						else:
+							printverbosewarning("Skipping entry due low confidence level: " + str(round(confidence * 100, 1)) + "%.")
+							printverbose("Original title:\t\t" + originalTitle)
+							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]))
+							continue
+					else:
+						printverbosewarning("Skipping entry in reverse check due to missing title and doi.")
+						continue
+
+		searchURL = r"https://api.crossref.org/works?rows=" + str(searchResults) + r"&query.title=" + title
+		with urllib.request.urlopen(searchURL) as url:	# Test without author		
+			data = json.load(url)
+			if data['status'] == 'ok':
+				# test if title is the same
+				for i in range(len(data['message']['items'])):
+					if 'title' and 'DOI' in data['message']['items'][i]:
+						confidence = similar(originalTitle, str(data['message']['items'][i]['title'][0]))
+						if confidence >= confidenceLevel:
+							printverbose(printgreen("Successfully retrieved JSON from Crossref by reverse check, confidence: " + str(round(confidence * 100, 1)) + "%."))
+							printverbose("Original title:\t\t" + originalTitle)
+							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]))
+							return str(data['message']['items'][i]['DOI'])
+						else:
+							printverbosewarning("Skipping entry due low confidence level: " + str(round(confidence * 100, 1)) + "%.")
+							printverbose("Original title:\t\t" + originalTitle)
+							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]))
+							continue
+					else:
+						printverbosewarning("Skipping entry in reverse check due to missing title and doi.")
+						continue
+		return None
+	except urllib.error.HTTPError as e:
+		if e.code == 404:
+			printverbosewarning("Crossref couldn't match " + title)
+			return None
+		else:
+			printverboseerror("Crossref returned " + str(e.code))
+			return None
 	except Exception as ex:
 		printverboseerror("Failed downloading data from Crossref.")
 		printverboseerror(traceback.format_exc())
 		return None
+
+def similar(a, b) -> float:
+	"""Test if inputs are similar"""
+	a = str(a).lower()
+	b = str(b).lower()
+	return SequenceMatcher(None, a, b).ratio()
 
 # Try to find a pdf to download
 def downloadPDF(urllist: list, filename):
@@ -150,6 +212,7 @@ def downloadFile(url: str, name: str) -> bool:
 	Checks mimetype, if PDF and download successfull returns True
 	"""
 	try:
+		printverbose("Reading filetype for " + printblue(url))
 		response =  urllib.request.urlopen(url)
 		info = response.info()
 		if info.get_content_type() == "application/pdf":
@@ -173,6 +236,10 @@ def downloadFile(url: str, name: str) -> bool:
 			printverboseerror("The server for " + url + " is unavailable at the moment")
 		else:
 			printverboseerror("Failed opening url, Error " + str(e.code))
+	except ConnectionRefusedError:
+		printverboseerror("The connection got refused, please check PC connection.")
+	except urllib.error.URLError:
+		printverboseerror("The connection got refused, please check PC connection.")
 	except Exception:
 		printverboseerror("Failed downloading pdf. ")
 		printverboseerror(traceback.format_exc())
@@ -269,8 +336,12 @@ def readAuthors(data) -> list[dict]:
 			authorlist = [{}]
 			for author in data['message']['author']:
 				if author['sequence'] == "first":
-					authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "first"})
-					printverbose("Found first author: " + printgreen(author['family'] + ", " + author['given']))
+					if 'family' in author:
+						authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "first"})
+						printverbose("Found first author: " + printgreen(author['family'] + ", " + author['given']))
+					elif 'name' in author:
+						authorlist.append({'name': author['name'], 'sequence': "first"})
+						printverbose("Found first author: " + printgreen(author['name']))						
 				elif author['sequence'] == "additional":
 					authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "additional"})
 					printverbose("Found additional author: " + printgreen(author['family'] + ", " + author['given']))
@@ -319,6 +390,7 @@ def checkEntry(entry: dict):
 		doAnalysis(entry)
 	elif noreverse == True:
 		printverbosewarning("(" + str(currentcount) + "/" + str(totalCount) + ") No DOI found, reverse lookup is disabled.")
+		finalentries.append(entry)
 	elif 'title' and 'authors' in entry: # Do reverse search with title and author
 		try:
 			# Encode title
@@ -331,18 +403,25 @@ def checkEntry(entry: dict):
 			if firstAuthor:
 				logMessage += " and author " + printblue(firstAuthor + ".")
 			printverbose(logMessage)
-			data = getCrossrefReverse(title, firstAuthor)
-			if data:
+			doi = getCrossrefReverse(title, firstAuthor)
+			if doi:
 				successfullReverseChecks +=1
-				entry['doi'] = data['message']['items'][0]['DOI']
+				entry['doi'] = doi
 				doAnalysis(entry)
 			else:
+				# Add dict entry to new list
+				finalentries.append(entry)
 				notFound +=1
+				printverbosewarning("Document could not be matched.")
 		except:
 			printverboseerror("Failed reverse engineering the entry.")
 			printverboseerror(traceback.format_exc())
+			finalentries.append(entry)
+
 	else: #Nothing could be matched
 		printverbosewarning("Document could not be matched.")
+		finalentries.append(entry)
+
 
 def doAnalysis(entry: dict):
 	"""
@@ -364,7 +443,6 @@ def doAnalysis(entry: dict):
 		doi = str(entry['doi'])
 		jsoninfo = getCrossref(doi)
 		if not jsoninfo: #Crossref returned 404
-			printverbosewarning("Crossref couldn't match " + doi)
 			notFound +=1
 			return
 		if not 'abstract' in entry:
