@@ -19,7 +19,9 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "justMyCode": true
+            "justMyCode": true,
+            "args": ["--getpdf"]
+
         }
     ]
 }

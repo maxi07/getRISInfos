@@ -42,13 +42,13 @@ try:
 	from tqdm import tqdm
 	from colorama import init
 	import traceback
-	import unicodedata
 	import re
 	init()
 except ModuleNotFoundError as ex:
-    printerror("The app could not be started, a module is missing.")
-    printerror(ex)
-    exit(2)
+	printerror("The app could not be started, a module is missing.")
+	printerror("Please run command pip install -r requirements.txt")
+	printerror(ex)
+	exit(2)
 except Exception as ex:
 	printerror("An unknown error occured while loading modules." + str(ex))
 	exit(2)

@@ -1,5 +1,6 @@
 # GetRISInfos
-This python program grabs an _.ris_ file (multiple entries possible), scans every entry and adds missing info to the entry. As source the [Crossref API](https://api.crossref.org) is being used. To work, each RIS entry must have a valid DOI number.
+This python program grabs an _.ris_ file (multiple entries possible), scans every entry and adds missing info to the entry. As source the [Crossref API](https://api.crossref.org) is being used.
+If a **DOI** is present, we will use this for direct lookup. If no DOI is present, we will try to do an reverse lookup using the **title and author**.
 
 <img src="https://github.com/maxi07/getRISInfos/blob/master/doc/app_screenshot1.png?raw=true" align="center" width="800"/>
 
@@ -10,6 +11,8 @@ Currently supported data to be added are:
 - Journal name
 - Document URL
 - Language
+- Download full-text PDF if available
+- Authors
 
 ## How to use
 1. Provide filepath of _.ris_ rile (eg. C:\Users\Max\test.ris)
@@ -17,9 +20,12 @@ Currently supported data to be added are:
 3. Wait until finished
 
 ## Options
-Use ```-v``` parameter to print verbose logging.
+Use ```--verbose``` parameter to print verbose logging.
+Use ```--confirm``` parameter to confirm before replacing data.
+Use ```--getpdf``` parameter to search for available PDFs and download them.
+Use ```--noreverse``` parameter to skip reverse lookup (caution!).
+
 
 ## Todo
 - [ ] Add multithreading
-- [ ] Add module installer file
 - [ ] Add return header check (current limit of API is 50r/s)
