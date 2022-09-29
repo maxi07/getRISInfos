@@ -20,11 +20,10 @@ Currently supported data to be added are:
 3. Wait until finished
 
 ## Options
-Use ```--verbose``` parameter to print verbose logging.
-Use ```--confirm``` parameter to confirm before replacing data.
-Use ```--getpdf``` parameter to search for available PDFs and download them.
-Use ```--noreverse``` parameter to skip reverse lookup (caution!).
-
+- ```--verbose``` parameter to print verbose logging.
+- ```--confirm``` parameter to confirm before replacing data.
+- ```--getpdf``` parameter to search for available PDFs and download them.
+- ```--noreverse``` parameter to skip reverse lookup (caution!).
 
 ## Todo
 - [ ] Add multithreading
