@@ -58,6 +58,7 @@ filepathResult = ""
 verboseoutput = False
 askConfirm = False
 getPDF = False
+noreverse = False
 foundItems = 0
 foundAbstract = 0
 foundReferenceType = 0
@@ -77,6 +78,8 @@ parser = ArgumentParser()
 parser.add_argument("--verbose", "-v", help="Print detailed output.", action="store_true")
 parser.add_argument("--confirm", "-c", help="Ask confirmation before replacing details.", action="store_true")
 parser.add_argument("--getpdf", "-p", help="Try to download pdf if available.", action="store_true")
+parser.add_argument("--noreverse", "-r", help="Disable the reverse lookup if no DOI is present.", action="store_true")
+
 
 args = parser.parse_args()
 if args.verbose:
@@ -85,6 +88,8 @@ if args.confirm:
 	askConfirm = True
 if args.getpdf:
 	getPDF = True
+if args.noreverse:
+	noreverse = True
 
 # Calls crossref with given DOI number and downloads input
 def getCrossref(doi: str) -> json:
@@ -92,7 +97,7 @@ def getCrossref(doi: str) -> json:
 		with urllib.request.urlopen("http://api.crossref.org/works/" + str(doi)) as url:			
 			data = json.load(url)
 			if data['status'] == 'ok':
-				printverbose("Successfully retrieved JSON from Crossref")
+				printverbose("Successfully retrieved JSON from Crossref for DOI " + printblue(str(doi)))
 			return data
 	except Exception as ex:
 		printverboseerror("Failed downloading data from Crossref.")
@@ -104,6 +109,7 @@ def getCrossrefReverse(title: str, author: str) -> json:
 	try:
 		# Encode title
 		title = title.replace(" ", "+")
+		title = re.sub('[^A-Za-z0-9+ ]+', '', title)
 		searchURL = r"https://api.crossref.org/works?rows=1&query.title=" + title
 		if author:
 			author = author.replace(",", "")
@@ -157,8 +163,14 @@ def downloadFile(url: str, name: str) -> bool:
 			printverbosewarning("Requested filetype for url " + str(url) + " is not PDF, skipping download.")
 			return False
 	except urllib.error.HTTPError as e:
-		printverboseerror("Failed opening url.")
-		printverboseerror(str(e.code) + " " + str(e.read()))	
+		if e.code == 403:
+			printverboseerror("Access denied for " + url)
+		elif e.code == 404:
+			printverboseerror("URL " + url + " does not exist.")
+		elif e.code == 503:
+			printverboseerror("The server for " + url + " is unavailable at the moment")
+		else:
+			printverboseerror("Failed opening url, Error " + str(e.code))
 	except Exception:
 		printverboseerror("Failed downloading pdf. ")
 		printverboseerror(traceback.format_exc())
@@ -295,14 +307,20 @@ def query_yes_no(question, default="yes"):
 def checkEntry(entry: dict):
 	global successfullReverseChecks
 	global notFound
+	global noreverse
 	# Check if DOI
-	if 'doi' in entry:		
+	if 'doi' in entry:
+		printverbose("")
+		printverbose("(" + str(currentcount) + "/" + str(len(entries)) + ") Reading info for DOI " + printblue(entry['doi']))		
 		doAnalysis(entry)
+	elif noreverse == True:
+		printverbosewarning("(" + str(currentcount) + "/" + str(len(entries)) + ") No DOI found, reverse lookup is disabled.")
 	elif 'title' and 'authors' in entry: # Do reverse search with title and author
 		try:
 			# Encode title
+			printverbose("")
 			title = str(entry['title'])
-			logMessage = "No DOI detected, starting reverse search with title " + printblue(title[:50] + "...")
+			logMessage = "(" + str(currentcount) + "/" + str(len(entries)) + ") No DOI detected, starting reverse search with title " + printblue(title[:50] + "...")
 
 			# Get first author
 			firstAuthor = str(entry["authors"][0])		
@@ -340,8 +358,6 @@ def doAnalysis(entry: dict):
 	global finalentries
 	try:
 		doi = str(entry['doi'])
-		printverbose("")
-		printverbose("(" + str(currentcount) + "/" + str(len(entries)) + ") Reading info for DOI " + printblue(doi))
 		jsoninfo = getCrossref(doi)
 		if not jsoninfo: #Crossref returned 404
 			printverbosewarning("Crossref couldn't match " + doi)
@@ -363,7 +379,7 @@ def doAnalysis(entry: dict):
 				entry['type_of_reference'] = type
 				foundItems +=1
 				foundReferenceType +=1
-		if not 'journal_name' or not 'alternate_title3' or not 'alternate_title2' in entry:
+		if not 'journal_name' and not 'alternate_title3' and not 'alternate_title2' in entry:
 			printverbose("No journal title was detected, searching online.")
 			journal = readJournal(jsoninfo)
 			if journal:
@@ -463,12 +479,15 @@ def doAnalysis(entry: dict):
 		
 		# Add URLs
 		urllist = []
-		urllist.append(entry['url'])
-		for url in getUrls(jsoninfo):
-			urllist.append(url)
-			printverbose("Found document URL: " + printgreen(url))
-			foundUrl +=1
-			foundItems +=1
+		if 'url' in entry:
+			urllist.append(entry['url'])
+		additionalURLs = getUrls(jsoninfo)
+		if additionalURLs:
+			for url in additionalURLs:
+				urllist.append(url)
+				printverbose("Found document URL: " + printgreen(url))
+				foundUrl +=1
+				foundItems +=1
 		
 		# Set url in entry
 		if len(urllist) > 0:
@@ -496,10 +515,10 @@ def getUrls(jsoninfo: json) -> list:
 				elif url['content-type'] == "unspecified":
 					urls.append(url['URL'])
 				else:
-					printverbosewarning("No PDF was found.")
+					printverbosewarning("Crossref did not return any PDF urls.")
 			return urls
 		else:
-			printverbosewarning("No PDF was found.")
+			printverbosewarning("Crossref couldn't find any urls.")
 			return None
 	except Exception:
 		printverboseerror("Failed retrieving URL.")
@@ -572,7 +591,7 @@ if __name__ == "__main__":
 		except Exception as ex:
 			printerror("Failed saving file. " + str(ex))
 
-		print(printgreen("Done! ") + "We have added " + printblue(str(foundItems)) + " items to the list.")
+		print(printgreen("Done! ") + "We have added " + printblue(str(foundItems)) + " categories to the list.")
 		print("Added abstracts:\t" + printgreen(str(foundAbstract)))
 		print("Added reference types:\t" + printgreen(str(foundReferenceType)))
 		print("Added journal names:\t" + printgreen(str(foundJournal)))
@@ -581,8 +600,8 @@ if __name__ == "__main__":
 		print("Added authors:\t\t" + printgreen(str(foundAuthors)))
 		if getPDF == True:
 			print("Downloaded PDFs:\t" + printgreen(str(downloadedPdfs)))
-		print("Reverse checks:\t" + printgreen(str(successfullReverseChecks)))
-		print("Documents not found:\t" + printyellow(str(notFound)))
+		print("Reverse checks:\t\t" + printgreen(str(successfullReverseChecks)))
+		print("Articles not found:\t" + printyellow(str(notFound)))
 		input("Press enter to exit.")
 	except Exception as ex:
 		printerror("Error opening file")
