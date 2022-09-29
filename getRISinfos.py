@@ -32,7 +32,6 @@ def printblue(msg) -> str:
 	return('\033[34m' + str(msg) + '\033[0m')
 
 # Imports
-import mimetypes
 import os
 try:
 	from pathlib import Path
@@ -42,8 +41,9 @@ try:
 	from datetime import datetime, date
 	from tqdm import tqdm
 	from colorama import init
-	import requests
 	import traceback
+	import unicodedata
+	import re
 	init()
 except ModuleNotFoundError as ex:
     printerror("The app could not be started, a module is missing.")
@@ -66,6 +66,7 @@ foundUrl = 0
 foundAuthors = 0
 foundLanguage = 0
 foundPublisher = 0
+successfullReverseChecks = 0
 downloadedPdfs = 0
 notFound = 0
 noDOI = 0
@@ -94,60 +95,70 @@ def getCrossref(doi: str) -> json:
 				printverbose("Successfully retrieved JSON from Crossref")
 			return data
 	except Exception as ex:
-		printverboseerror("Failed downloading data.")
-		printverboseerror(str(ex))
+		printverboseerror("Failed downloading data from Crossref.")
+		printverboseerror(traceback.format_exc())
+		return None
+
+# Calls crossref with given title and downloads input
+def getCrossrefReverse(title: str, author: str) -> json:
+	try:
+		# Encode title
+		title = title.replace(" ", "+")
+		searchURL = r"https://api.crossref.org/works?rows=1&query.title=" + title
+		if author:
+			author = author.replace(",", "")
+			author = author.replace(" ", "+")
+			author = author.replace(".", "")
+			searchURL += "&query.author=" + author
+		with urllib.request.urlopen(searchURL) as url:			
+			data = json.load(url)
+			if data['status'] == 'ok':
+				printverbose("Successfully retrieved JSON from Crossref by reverse check.")
+			return data
+	except Exception as ex:
+		printverboseerror("Failed downloading data from Crossref.")
+		printverboseerror(traceback.format_exc())
 		return None
 
 # Try to find a pdf to download
-def downloadPDF(data: json):
+def downloadPDF(urllist: list):
 	"""
 	Downloads the file if the mimetype pdf is detected.
 	"""
-	try:
-		if 'link' in data['message']:
-			for url in data['message']['link']:
-				if url['content-type'] == "unspecified":
-					filename = data['message']['title'][0]
-					filename = filename[:75] if len(filename) > 75 else filename
-					success = downloadFile(url['URL'], filename)
-					if success:
-						downloadedPdfs+=1
-						break
-				elif url['content-type'] == "application/pdf":
-					filename = data['message']['title'][0]
-					filename = filename[:75] if len(filename) > 75 else filename
-					success = downloadFile(url['URL'], filename)
-					if success:
-						downloadedPdfs+=1
-						break
-				else:
-					printverbosewarning("No PDF could be found.")
-		else:
-			printverbosewarning("No PDF could be found.")
-	except Exception:
-		printverboseerror("Failed retrieving PDF.")
-		printverboseerror(traceback.format_exc())
+	global downloadedPdfs
+	filename = entry['title']
+	filename = filename[:75] if len(filename) > 75 else filename
+	filename = re.sub('[^A-Za-z0-9 ]+', '', filename) # Remove unwanted chars
+	for url in urllist:
+		success = downloadFile(url, filename)
+		if success == True:
+			downloadedPdfs+=1
+			return
+	printverbosewarning("No PDF could be found.")
+
 
 def downloadFile(url: str, name: str) -> bool:
 	"""
 	Checks mimetype, if PDF and download successfull returns True
 	"""
 	try:
-		# Guess mimetype
-		mimetype = mimetypes.guess_type(url)
-		if mimetype[0] == ("application/pdf"):
+		response =  urllib.request.urlopen(url)
+		info = response.info()
+		if info.get_content_type() == "application/pdf":
 			printverbose("Detected " + url + " as PDF file.")
-			r = requests.get(url, allow_redirects=True)
 			filename = name + ".pdf"
 			p = Path(filepathResult / filename)
 			with open(p, 'wb') as output:
-				content = requests.get(url, stream=True).content
-				output.write(content)
+				data = response.read()
+				output.write(data)
 				printverbose("Saved PDF at " + printgreen(str(p.absolute())))
 				return True
 		else:
-			printverbosewarning("Requested filetype is not PDF, skipping download.")
+			printverbosewarning("Requested filetype for url " + str(url) + " is not PDF, skipping download.")
 			return False
+	except urllib.error.HTTPError as e:
+		printverboseerror("Failed opening url.")
+		printverboseerror(str(e.code) + " " + str(e.read()))	
 	except Exception:
 		printverboseerror("Failed downloading pdf. ")
 		printverboseerror(traceback.format_exc())
@@ -181,8 +192,10 @@ def readAbstract(data) -> str:
 		else:
 			printverbosewarning("No abstract was found online.")
 			return None
-	except Exception as e:
-		printverboseerror("Failed reading abstract. " + str(e))
+	except Exception:
+		printverboseerror("Failed reading abstract. ")
+		printverboseerror(traceback.format_exc())
+
 
 def readReferenceType(data) -> str:
 	try:
@@ -209,18 +222,6 @@ def readJournal(data) -> str:
 			return None
 	except Exception as e:
 		printverboseerror("Failed reading journal. " + str(e))
-
-def readURL(data) -> str:
-	try:
-		if 'link' in data['message']:
-			link = str(data['message']['link'][0]["URL"])
-			printverbose("Found document url: " + printgreen(link))
-			return link
-		else:
-			printverbosewarning("No document url was found online")
-			return None
-	except Exception as e:
-		printverboseerror("Failed reading document url. " + str(e))
 
 def readLanguage(data) -> str:
 	try:
@@ -268,7 +269,7 @@ def readAuthors(data) -> list[dict]:
 			return None
 
 	except Exception as e:
-		printverboseerror("Failed reading language. " + str(e))
+		printverboseerror("Failed reading author. " + str(e))
 
 def query_yes_no(question, default="yes"):
     valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
@@ -291,7 +292,41 @@ def query_yes_no(question, default="yes"):
         else:
             print("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
 
-def doAnalysis(entry):
+def checkEntry(entry: dict):
+	global successfullReverseChecks
+	global notFound
+	# Check if DOI
+	if 'doi' in entry:		
+		doAnalysis(entry)
+	elif 'title' and 'authors' in entry: # Do reverse search with title and author
+		try:
+			# Encode title
+			title = str(entry['title'])
+			logMessage = "No DOI detected, starting reverse search with title " + printblue(title[:50] + "...")
+
+			# Get first author
+			firstAuthor = str(entry["authors"][0])		
+			if firstAuthor:
+				logMessage += " and author " + printblue(firstAuthor + ".")
+			printverbose(logMessage)
+			data = getCrossrefReverse(title, firstAuthor)
+			if data:
+				successfullReverseChecks +=1
+				entry['doi'] = data['message']['items'][0]['DOI']
+				doAnalysis(entry)
+			else:
+				notFound +=1
+		except:
+			printverboseerror("Failed reverse engineering the entry.")
+			printverboseerror(traceback.format_exc())
+	else: #Nothing could be matched
+		printverbosewarning("Document could not be matched.")
+
+def doAnalysis(entry: dict):
+	"""
+	Perform the actual analysis.
+	:param dict: The dictionary entry from RIS
+	"""
 	global foundItems
 	global foundAbstract
 	global foundReferenceType
@@ -304,146 +339,172 @@ def doAnalysis(entry):
 	global noDOI
 	global finalentries
 	try:
-	# Test if DOI is present in current entry
-		if 'doi' in entry:
-			doi = str(entry['doi'])
-			printverbose("")
-			printverbose("(" + str(currentcount) + "/" + str(len(entries)) + ") Reading info for DOI " + printblue(doi))
-			jsoninfo = getCrossref(doi)
-			if not jsoninfo: #Crossref returned 404
-				notFound +=1
-				return
-			if not 'abstract' in entry:
-				printverbose("No abstract was detected, searching online.")
-				abstract = readAbstract(jsoninfo)
-				if abstract:
-					# Add abstract to dictionary
-					entry['abstract'] = abstract
-					foundItems +=1
-					foundAbstract +=1
-			if not 'type_of_reference' in entry:
-				printverbose("No reference type was detected, searching online.")
-				type = readReferenceType(jsoninfo)
-				if type:
-					# Add type to dictionary
-					entry['type_of_reference'] = type
-					foundItems +=1
-					foundReferenceType +=1
-			if not 'journal_name' or not 'alternate_title3' or not 'alternate_title2' in entry:
-				printverbose("No journal title was detected, searching online.")
-				journal = readJournal(jsoninfo)
-				if journal:
-					# Add journal to dictionary
-					entry['journal_name'] = journal
-					foundItems +=1
-					foundJournal +=1
-			if not 'url' or not 'file_attachments1' or not 'file_attachments2' in entry:
-				printverbose("No document url was detected, searching online.")
-				url = readURL(jsoninfo)
-				if url:
-					# Add url to dictionary
-					entry['url'] = url
-					foundItems +=1
-					foundUrl +=1
-			if not 'language' in entry:
-				printverbose("No document language was detected, searching online.")
-				language = readLanguage(jsoninfo)
-				if language:
-					# Add language to dictionary
-					entry['language'] = language
-					foundItems +=1
-					foundLanguage +=1
-			if not 'access_date' in entry:
-				printverbose("No access date was detected, adding todays date.")
-				entry['access_date'] = str(date.today())
-			if not 'publisher' in entry:
-				printverbose("No publisher was detected, searching online.")
-				publisher = readPublisher(jsoninfo)
-				if publisher:
-					# Add publisher to dictionary
-					entry['publisher'] = publisher
-					foundItems +=1
-					foundPublisher +=1
-			if not 'authors' and not 'first_authors' and not 'secondary_authors' and not 'subsidiary_authors' in entry:
-				printverbose("No author was detected, searching online.")
-				authors = readAuthors(jsoninfo)
-				if authors:
-					# Add authors to dictionary
-					firstAuthors = []
-					additionalAuthors = []
-					otherAuthors = []
-					for author in authors:
-						if author['sequence'] == "First":
-							firstAuthors.append(author['name'])
-						elif author['sequence'] == "Additional":
-							additionalAuthors.append(author['name'])
-						else:
-							otherAuthors.append(author['name'])
-					entry['authors'] = otherAuthors
-					entry['first_authors'] = firstAuthors
-					entry['second_authors'] = additionalAuthors
-					foundItems +=1
-					foundAuthors +=1
-			if 'authors' or 'first_authors' or 'secondary_authors' or 'subsidiary_authors' in entry:
-				printverbose("Authors were detected, searching online for additions.")
-				authors = readAuthors(jsoninfo)
-				if authors:
-					# Add authors to dictionary
-					firstAuthors = []
-					additionalAuthors = []
-					otherAuthors = []
-					for author in authors:
-						if not author:
-							continue
-						if author['sequence'] == "first":
-							firstAuthors.append(author['name'])
-						elif author['sequence'] == "additional":
-							additionalAuthors.append(author['name'])
-						else:
-							otherAuthors.append(author['name'])
-						foundAuthors +=1			
-					if askConfirm == True:
-						currentAuthors = []
-						# Add all current author to one string
-						if entry.get('authors'):
-							currentAuthors.append(entry.get('authors'))
-						if entry.get('first_authors'):
-							currentAuthors.append(entry.get('first_authors'))
-						if entry.get('secondary_authors'):
-							currentAuthors.append(entry.get('secondary_authors'))
-						if entry.get('subsidiary_authors'):
-							currentAuthors.append(entry.get('subsidiary_authors'))
-
-						# Add all new authors to string
-						newAuthors = firstAuthors + additionalAuthors + otherAuthors
-						currentAuthorsString = ""
-						newAuthorsString = ""
-						for cA in currentAuthors:
-							currentAuthorsString += str(cA)
-						for nA in newAuthors:
-							newAuthorsString += str(nA)
-						print("Current authors: " + currentAuthorsString)
-						print("New authors: " + newAuthorsString)
-						choice = query_yes_no("Replace authors?")
-						if choice == True:
-							entry['authors'] = otherAuthors
-							entry['first_authors'] = firstAuthors
-							entry['secondary_authors'] = additionalAuthors
+		doi = str(entry['doi'])
+		printverbose("")
+		printverbose("(" + str(currentcount) + "/" + str(len(entries)) + ") Reading info for DOI " + printblue(doi))
+		jsoninfo = getCrossref(doi)
+		if not jsoninfo: #Crossref returned 404
+			printverbosewarning("Crossref couldn't match " + doi)
+			notFound +=1
+			return
+		if not 'abstract' in entry:
+			printverbose("No abstract was detected, searching online.")
+			abstract = readAbstract(jsoninfo)
+			if abstract:
+				# Add abstract to dictionary
+				entry['abstract'] = abstract
+				foundItems +=1
+				foundAbstract +=1
+		if not 'type_of_reference' in entry:
+			printverbose("No reference type was detected, searching online.")
+			type = readReferenceType(jsoninfo)
+			if type:
+				# Add type to dictionary
+				entry['type_of_reference'] = type
+				foundItems +=1
+				foundReferenceType +=1
+		if not 'journal_name' or not 'alternate_title3' or not 'alternate_title2' in entry:
+			printverbose("No journal title was detected, searching online.")
+			journal = readJournal(jsoninfo)
+			if journal:
+				# Add journal to dictionary
+				entry['journal_name'] = journal
+				foundItems +=1
+				foundJournal +=1
+		if not 'language' in entry:
+			printverbose("No document language was detected, searching online.")
+			language = readLanguage(jsoninfo)
+			if language:
+				# Add language to dictionary
+				entry['language'] = language
+				foundItems +=1
+				foundLanguage +=1
+		if not 'access_date' in entry:
+			printverbose("No access date was detected, adding todays date.")
+			entry['access_date'] = str(date.today())
+		if not 'publisher' in entry:
+			printverbose("No publisher was detected, searching online.")
+			publisher = readPublisher(jsoninfo)
+			if publisher:
+				# Add publisher to dictionary
+				entry['publisher'] = publisher
+				foundItems +=1
+				foundPublisher +=1
+		if not 'authors' and not 'first_authors' and not 'secondary_authors' and not 'subsidiary_authors' in entry:
+			printverbose("No author was detected, searching online.")
+			authors = readAuthors(jsoninfo)
+			if authors:
+				# Add authors to dictionary
+				firstAuthors = []
+				additionalAuthors = []
+				otherAuthors = []
+				for author in authors:
+					if author['sequence'] == "First":
+						firstAuthors.append(author['name'])
+					elif author['sequence'] == "Additional":
+						additionalAuthors.append(author['name'])
 					else:
-							entry['authors'] = otherAuthors
-							entry['first_authors'] = firstAuthors
-							entry['secondary_authors'] = additionalAuthors
-					foundItems +=1
-			if getPDF == True:
-				downloadPDF(jsoninfo)
-		else:
-			printverbosewarning("(" + str(currentcount) + "/" + str(len(entries)) + ") DOI was not found for " + str(entry['title']))
-			noDOI +=1
+						otherAuthors.append(author['name'])
+				entry['authors'] = otherAuthors
+				entry['first_authors'] = firstAuthors
+				entry['second_authors'] = additionalAuthors
+				foundItems +=1
+				foundAuthors +=1
+		if 'authors' or 'first_authors' or 'secondary_authors' or 'subsidiary_authors' in entry:
+			printverbose("Authors were detected, searching online for additions.")
+			authors = readAuthors(jsoninfo)
+			if authors:
+				# Add authors to dictionary
+				firstAuthors = []
+				additionalAuthors = []
+				otherAuthors = []
+				for author in authors:
+					if not author:
+						continue
+					if author['sequence'] == "first":
+						firstAuthors.append(author['name'])
+					elif author['sequence'] == "additional":
+						additionalAuthors.append(author['name'])
+					else:
+						otherAuthors.append(author['name'])
+					foundAuthors +=1			
+				if askConfirm == True:
+					currentAuthors = []
+					# Add all current author to one string
+					if entry.get('authors'):
+						currentAuthors.append(entry.get('authors'))
+					if entry.get('first_authors'):
+						currentAuthors.append(entry.get('first_authors'))
+					if entry.get('secondary_authors'):
+						currentAuthors.append(entry.get('secondary_authors'))
+					if entry.get('subsidiary_authors'):
+						currentAuthors.append(entry.get('subsidiary_authors'))
+
+					# Add all new authors to string
+					newAuthors = firstAuthors + additionalAuthors + otherAuthors
+					currentAuthorsString = ""
+					newAuthorsString = ""
+					for cA in currentAuthors:
+						currentAuthorsString += str(cA)
+					for nA in newAuthors:
+						newAuthorsString += str(nA)
+					print("Current authors: " + currentAuthorsString)
+					print("New authors: " + newAuthorsString)
+					choice = query_yes_no("Replace authors?")
+					if choice == True:
+						entry['authors'] = otherAuthors
+						entry['first_authors'] = firstAuthors
+						entry['secondary_authors'] = additionalAuthors
+				else:
+						entry['authors'] = otherAuthors
+						entry['first_authors'] = firstAuthors
+						entry['secondary_authors'] = additionalAuthors
+				foundItems +=1
+		
+		# Add URLs
+		urllist = []
+		urllist.append(entry['url'])
+		for url in getUrls(jsoninfo):
+			urllist.append(url)
+			printverbose("Found document URL: " + printgreen(url))
+			foundUrl +=1
+			foundItems +=1
+		
+		# Set url in entry
+		if len(urllist) > 0:
+			entry['file_attachments1'] = urllist
+			if not 'url' in entry:
+				entry['url'] = urllist[0]
+
+		if getPDF == True:
+			if 'url' or 'file_attachments1' or 'file_attachments2' in entry:
+				downloadPDF(urllist)			
+
 		# Add dict entry to new list
 		finalentries.append(entry)
 	except Exception as ex:
-		printerror(str(ex))
+		printerror("An error occured for analysis.")
+		printverboseerror(traceback.format_exc())
 			
+def getUrls(jsoninfo: json) -> list:
+	try:
+		urls = []
+		if 'link' in jsoninfo['message']:
+			for url in jsoninfo['message']['link']:
+				if url['content-type'] == "application/pdf":
+					urls.append(url['URL'])
+				elif url['content-type'] == "unspecified":
+					urls.append(url['URL'])
+				else:
+					printverbosewarning("No PDF was found.")
+			return urls
+		else:
+			printverbosewarning("No PDF was found.")
+			return None
+	except Exception:
+		printverboseerror("Failed retrieving URL.")
+		printverboseerror(traceback.format_exc())
+		return None
 
 if __name__ == "__main__":
 	# Get filepath to RIS file
@@ -491,11 +552,11 @@ if __name__ == "__main__":
 		if verboseoutput == True:
 			for entry in entries:
 				currentcount +=1
-				doAnalysis(entry)
+				checkEntry(entry)
 		else:
 			for entry in tqdm(entries, desc ="Analyzing RIS", ascii=' ='):
 				currentcount +=1
-				doAnalysis(entry)
+				checkEntry(entry)
 		
 		# Now write entries into output file
 		print()
@@ -520,7 +581,7 @@ if __name__ == "__main__":
 		print("Added authors:\t\t" + printgreen(str(foundAuthors)))
 		if getPDF == True:
 			print("Downloaded PDFs:\t" + printgreen(str(downloadedPdfs)))
-		print("Documents without DOI:\t" + printyellow(str(noDOI)))
+		print("Reverse checks:\t" + printgreen(str(successfullReverseChecks)))
 		print("Documents not found:\t" + printyellow(str(notFound)))
 		input("Press enter to exit.")
 	except Exception as ex:
