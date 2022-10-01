@@ -26,6 +26,8 @@ Currently supported data to be added are:
 - ```--noreverse``` parameter to skip reverse lookup.
 - ```--processes``` parameter to set number of processes (default is count of your cpu).
 
+## Credits
+A big thank you to [rispy](https://github.com/MrTango/rispy/)!
 
 ## Todo
 - [ ] Add return header check (current limit of API is 50r/s)
