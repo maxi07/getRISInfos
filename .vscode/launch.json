@@ -20,7 +20,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--getpdf", "--processes", "16"]
+            "args": ["--getpdf"]
 
         }
     ]
