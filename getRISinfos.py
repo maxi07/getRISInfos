@@ -214,6 +214,7 @@ def downloadPDF(urllist: list, filename: str, resultInfo: resultInfo) -> resultI
 	id = resultInfo.id
 	filename = filename[:75] if len(filename) > 75 else filename
 	filename = re.sub('[^A-Za-z0-9 ]+', '', filename) # Remove unwanted chars
+	filename = filename.strip() # Remove trailing and ending spaces
 	for url in urllist:
 		success = downloadFile(url, filename, resultInfo)
 		if success == True:
