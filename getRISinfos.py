@@ -46,7 +46,6 @@ def printblue(msg) -> str:
 	return('\033[34m' + str(msg) + '\033[0m')
 
 # Imports
-from concurrent.futures import process
 import os
 try:
 	from pathlib import Path
@@ -695,8 +694,8 @@ if __name__ == "__main__":
 		results: list[resultInfo]
 
 		if not args.processes:
-			if totalCount > os.cpu_count():
-				processes_count = os.cpu_count()
+			if totalCount > os.cpu_count() * 4:
+				processes_count = os.cpu_count()* 4
 			else:
 				processes_count = totalCount
 		else: 
