@@ -3,24 +3,38 @@
 # Date: 26.09.2022
 # RIS info can be found here: https://pypi.org/project/rispy/
 
+# Todo: proccess cant read write lobal var (filepath + count)
+
+# Set var
+verboseoutput = False
+askConfirm = False
+getPDF = False
+noreverse = False
+totalCount = 0
+processes_count = 1
+
 # Define Error Logging
-def printerror(ex):
-	print('\033[31m' + str(ex) + '\033[0m')
+def printerror(ex, id = "undefined"):
+	prefix = "[" + str(id) + "] "
+	print(prefix + '\033[31m'  + str(ex) + '\033[0m', flush=True)
 
-def printverbose(msg):
+def printverbose(msg, id = "undefined"):
 	if verboseoutput == True:
-		print(str(msg))
+		prefix = "[" + str(id) + "] "
+		print(prefix + str(msg), flush=True)
 
-def printverboseerror(msg):
+def printverboseerror(msg, id = "undefined"):
 	if verboseoutput == True:
-		print('\033[31m' + str(msg) + '\033[0m')
+		prefix = "[" + str(id) + "] "
+		print(prefix + '\033[31m' + str(msg) + '\033[0m', flush=True)
 
-def printverbosewarning(msg):
+def printverbosewarning(msg, id="undefined"):
 	if verboseoutput == True:
-		print('\033[33m' + str(msg) + '\033[0m')
+		prefix = "[" + str(id) + "] "
+		print(prefix + '\033[33m' + str(msg) + '\033[0m', flush=True)
 
-def printwarning(warn):
-	print('\033[33m' + str(warn) + '\033[0m')
+def printwarning(warn, id="undefined"):
+	print('\033[33m' + str(warn) + '\033[0m', flush=True)
 
 def printyellow(warn) -> str:
 	return('\033[33m' + str(warn) + '\033[0m')
@@ -32,20 +46,22 @@ def printblue(msg) -> str:
 	return('\033[34m' + str(msg) + '\033[0m')
 
 # Imports
-from multiprocessing import Pool
+from concurrent.futures import process
 import os
 try:
 	from pathlib import Path
 	import rispy
+	import pathlib
 	import urllib.request, json
 	from argparse import ArgumentParser
 	from datetime import datetime, date
-	from tqdm import tqdm
 	from colorama import init
 	import traceback
 	from difflib import SequenceMatcher
 	from urllib.parse import quote  
 	import re
+	from mpire import WorkerPool
+	from multiprocessing import Manager
 	init()
 except ModuleNotFoundError as ex:
 	printerror("The app could not be started, a module is missing.")
@@ -56,34 +72,13 @@ except Exception as ex:
 	printerror("An unknown error occured while loading modules." + str(ex))
 	exit(2)
 
-# Set var
-filepathResult = ""
-currentcount = 0		
-verboseoutput = False
-askConfirm = False
-getPDF = False
-noreverse = False
-foundItems = 0
-foundAbstract = 0
-foundReferenceType = 0
-foundJournal = 0
-foundUrl = 0
-foundAuthors = 0
-foundLanguage = 0
-foundPublisher = 0
-successfullReverseChecks = 0
-downloadedPdfs = 0
-notFound = 0
-noDOI = 0
-totalCount = 0
-finalentries = [{}]
-
 # Parse Arguments
 parser = ArgumentParser()
-parser.add_argument("--verbose", "-v", help="Print detailed output.", action="store_true")
-parser.add_argument("--confirm", "-c", help="Ask confirmation before replacing details.", action="store_true")
-parser.add_argument("--getpdf", "-p", help="Try to download pdf if available.", action="store_true")
-parser.add_argument("--noreverse", "-r", help="Disable the reverse lookup if no DOI is present.", action="store_true")
+parser.add_argument("--verbose", help="Print detailed output.", action="store_true")
+parser.add_argument("--confirm", help="Ask confirmation before replacing details.", action="store_true")
+parser.add_argument("--getpdf", help="Try to download pdf if available.", action="store_true")
+parser.add_argument("--noreverse", help="Disable the reverse lookup if no DOI is present.", action="store_true")
+parser.add_argument("--processes", help="Set the number of processes (be careful).", action="store", type=int)
 
 
 args = parser.parse_args()
@@ -95,26 +90,47 @@ if args.getpdf:
 	getPDF = True
 if args.noreverse:
 	noreverse = True
+if args.processes:
+	processes_count = args.processes
+
+# Create class for counting and result returning
+class resultInfo():
+	foundItems = 0
+	foundAbstract = 0
+	foundReferenceType = 0
+	foundJournal = 0
+	foundUrl = 0
+	foundAuthors = 0
+	foundLanguage = 0
+	foundPublisher = 0
+	successfullReverseChecks = 0
+	downloadedPdfs = 0
+	notFound = 0
+	noDOI = 0
+	filepathResult: pathlib.Path
+	ris: dict
+	id= 0
+	total= 0
 
 # Calls crossref with given DOI number and downloads input
-def getCrossref(doi: str) -> json:
+def getCrossref(doi: str, id: int) -> json:
 	try:
 		with urllib.request.urlopen("http://api.crossref.org/works/" + str(doi)) as url:			
 			data = json.load(url)
 			if data['status'] == 'ok':
-				printverbose("Successfully retrieved JSON from Crossref for DOI " + printblue(str(doi)))
+				printverbose("Successfully retrieved JSON from Crossref for DOI " + printblue(str(doi)), id)
 			return data
 	except urllib.error.HTTPError as e:
 		if e.code == 404:
-			printverbosewarning("Crossref couldn't match " + doi)
+			printverbosewarning("Crossref couldn't match " + doi, id)
 		else:
-			printverboseerror("Crossref returned " + str(e.code))
+			printverboseerror("Crossref returned " + str(e.code), id)
 	except Exception as ex:
-		printverboseerror("Failed downloading data from Crossref.")
-		printverboseerror(traceback.format_exc())
+		printverboseerror("Failed downloading data from Crossref.", id)
+		printverboseerror(traceback.format_exc(), id)
 		return None
 
-def getCrossrefReverse(title: str, author: str) -> json:
+def getCrossrefReverse(title: str, author: str, id: int) -> json:
 	"""
 	Calls crossref with given title and downloads input"""
 	try:
@@ -129,7 +145,7 @@ def getCrossrefReverse(title: str, author: str) -> json:
 			author = author.replace(",", "")
 			author = author.replace(" ", "+")
 			author = author.replace(".", "")
-			searchURL += "&query.author=" + quote(author)
+			searchURL += r"&query.author=" + quote(author)
 		with urllib.request.urlopen(searchURL) as url:	# Test with author		
 			data = json.load(url)
 			if data['status'] == 'ok':
@@ -138,17 +154,17 @@ def getCrossrefReverse(title: str, author: str) -> json:
 					if 'title' and 'DOI' in data['message']['items'][i]:					
 						confidence = similar(originalTitle[:100], data['message']['items'][i]['title'][0][:100])
 						if confidence >= confidenceLevel:
-							printverbose(printgreen("Successfully retrieved JSON from Crossref by reverse check, confidence: " + str(round(confidence * 100, 1)) + "%."))
-							printverbose("Original title:\t\t" + originalTitle)
-							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]))
+							printverbose(printgreen("Successfully retrieved JSON from Crossref by reverse check, confidence: " + str(round(confidence * 100, 1)) + "%."), id)
+							printverbose("Original title:\t\t" + originalTitle, id)
+							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]), id)
 							return str(data['message']['items'][i]['DOI'])
 						else:
-							printverbosewarning("Skipping entry due low confidence level: " + str(round(confidence * 100, 1)) + "%.")
-							printverbose("Original title:\t\t" + originalTitle)
-							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]))
+							printverbosewarning("Skipping entry due low confidence level: " + str(round(confidence * 100, 1)) + "%.", id)
+							printverbose("Original title:\t\t" + originalTitle, id)
+							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]), id)
 							continue
 					else:
-						printverbosewarning("Skipping entry in reverse check due to missing title and doi.")
+						printverbosewarning("Skipping entry in reverse check due to missing title and doi.", id)
 						continue
 
 		searchURL = r"https://api.crossref.org/works?rows=" + str(searchResults) + r"&query.title=" + title
@@ -160,29 +176,29 @@ def getCrossrefReverse(title: str, author: str) -> json:
 					if 'title' and 'DOI' in data['message']['items'][i]:
 						confidence = similar(originalTitle, str(data['message']['items'][i]['title'][0]))
 						if confidence >= confidenceLevel:
-							printverbose(printgreen("Successfully retrieved JSON from Crossref by reverse check, confidence: " + str(round(confidence * 100, 1)) + "%."))
-							printverbose("Original title:\t\t" + originalTitle)
-							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]))
+							printverbose(printgreen("Successfully retrieved JSON from Crossref by reverse check, confidence: " + str(round(confidence * 100, 1)) + "%."), id)
+							printverbose("Original title:\t\t" + originalTitle, id)
+							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]), id)
 							return str(data['message']['items'][i]['DOI'])
 						else:
-							printverbosewarning("Skipping entry due low confidence level: " + str(round(confidence * 100, 1)) + "%.")
-							printverbose("Original title:\t\t" + originalTitle)
-							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]))
+							printverbosewarning("Skipping entry due low confidence level: " + str(round(confidence * 100, 1)) + "%.", id)
+							printverbose("Original title:\t\t" + originalTitle, id)
+							printverbose("Detected online title:\t" + str(data['message']['items'][i]['title'][0]), id)
 							continue
 					else:
-						printverbosewarning("Skipping entry in reverse check due to missing title and doi.")
+						printverbosewarning("Skipping entry in reverse check due to missing title and doi.", id)
 						continue
 		return None
 	except urllib.error.HTTPError as e:
 		if e.code == 404:
-			printverbosewarning("Crossref couldn't match " + title)
+			printverbosewarning("Crossref couldn't match " + title, id)
 			return None
 		else:
-			printverboseerror("Crossref returned " + str(e.code))
+			printverboseerror("Crossref returned " + str(e.code), id)
 			return None
 	except Exception as ex:
-		printverboseerror("Failed downloading data from Crossref.")
-		printverboseerror(traceback.format_exc())
+		printverboseerror("Failed downloading data from Crossref.", id)
+		printverboseerror(traceback.format_exc(), id)
 		return None
 
 def similar(a, b) -> float:
@@ -192,61 +208,65 @@ def similar(a, b) -> float:
 	return SequenceMatcher(None, a, b).ratio()
 
 # Try to find a pdf to download
-def downloadPDF(urllist: list, filename):
+def downloadPDF(urllist: list, filename: str, resultInfo: resultInfo) -> resultInfo:
 	"""
 	Downloads the file if the mimetype pdf is detected.
 	"""
-	global downloadedPdfs
+	id = resultInfo.id
 	filename = filename[:75] if len(filename) > 75 else filename
 	filename = re.sub('[^A-Za-z0-9 ]+', '', filename) # Remove unwanted chars
 	for url in urllist:
-		success = downloadFile(url, filename)
+		success = downloadFile(url, filename, resultInfo)
 		if success == True:
-			downloadedPdfs+=1
-			return
-	printverbosewarning("No PDF could be found.")
+			resultInfo.downloadedPdfs+=1
+			return resultInfo.downloadedPdfs	
+	printverbosewarning("No PDF could be found.", id)
+	return 0
 
 
-def downloadFile(url: str, name: str) -> bool:
+def downloadFile(url: str, name: str, resultInfo: resultInfo) -> bool:
 	"""
 	Checks mimetype, if PDF and download successfull returns True
 	"""
 	try:
-		printverbose("Reading filetype for " + printblue(url))
+		id = resultInfo.id
+		printverbose("Reading filetype for " + printblue(url), id)
 		response =  urllib.request.urlopen(url)
 		info = response.info()
 		if info.get_content_type() == "application/pdf":
-			printverbose("Detected " + url + " as PDF file.")
+			printverbose("Detected " + url + " as PDF file.", id)
 			filename = name + ".pdf"
-			p = Path(filepathResult / filename)
+			p = Path(resultInfo.filepathResult, filename)
 			with open(p, 'wb') as output:
 				data = response.read()
 				output.write(data)
-				printverbose("Saved PDF at " + printgreen(str(p.absolute())))
+				printverbose("Saved PDF at " + printgreen(str(p.absolute())), id)
 				return True
 		else:
-			printverbosewarning("Requested filetype for url " + str(url) + " is not PDF, skipping download.")
+			printverbosewarning("Requested filetype for url " + str(url) + " is not PDF, skipping download.", id)
 			return False
 	except urllib.error.HTTPError as e:
 		if e.code == 403:
-			printverboseerror("Access denied for " + url)
+			printverboseerror("Access denied for " + url, id)
 		elif e.code == 404:
-			printverboseerror("URL " + url + " does not exist.")
+			printverboseerror("URL " + url + " does not exist.", id)
 		elif e.code == 503:
-			printverboseerror("The server for " + url + " is unavailable at the moment")
+			printverboseerror("The server for " + url + " is unavailable at the moment", id)
+		elif e.code == 400:
+			printverboseerror("The request is invalid.", id)
 		else:
-			printverboseerror("Failed opening url, Error " + str(e.code))
+			printverboseerror("Failed opening url, Error " + str(e.code), id)
 	except ConnectionRefusedError:
-		printverboseerror("The connection got refused, please check PC connection.")
+		printverboseerror("The connection got refused, please check PC connection.", id)
 	except urllib.error.URLError:
-		printverboseerror("The connection got refused, please check PC connection.")
+		printverboseerror("The connection got refused, please check PC connection.", id)
 	except Exception:
-		printverboseerror("Failed downloading pdf. ")
+		printverboseerror("Failed downloading pdf. ", id)
 		printverboseerror(traceback.format_exc())
 		return False
 
 
-def readAbstract(data) -> str:
+def readAbstract(data: json, id: int) -> str:
 	try:
 		if 'abstract' in data['message']:
 			abstract_raw = str(data['message']['abstract'])
@@ -268,93 +288,113 @@ def readAbstract(data) -> str:
 				abstract_raw = abstract_raw[index+8:]
 				index = abstract_raw.find("</jats:p>")
 				abstract_raw = abstract_raw[:index]
-			printverbose("Found abstract: " + printgreen(abstract_raw[0:80] + "..."))
+			printverbose("Found abstract: " + printgreen(abstract_raw[0:80] + "..."), id)
 			return abstract_raw
 		else:
-			printverbosewarning("No abstract was found online.")
+			printverbosewarning("No abstract was found online.", id)
 			return None
 	except Exception:
-		printverboseerror("Failed reading abstract. ")
-		printverboseerror(traceback.format_exc())
+		printverboseerror("Failed reading abstract. ", id)
+		printverboseerror(traceback.format_exc(), id)
 
 
-def readReferenceType(data) -> str:
+def readReferenceType(data: json, id: int) -> str:
 	try:
+		if 'DOI' in data['message']:
+			id = data['message']['DOI']
+		else:
+			id = data['message']['title'][:20]
 		if 'type' in data['message']:
 			type = str(data['message']['type'])
-			printverbose("Found type " + printgreen(type))
+			printverbose("Found type " + printgreen(type), id)
 			return type
 		else:
-			printverbosewarning("No type was found online")
+			printverbosewarning("No type was found online", id)
 			return None
 	except Exception as e:
 		printverboseerror("Failed reading type. " + str(e))
 
-def readJournal(data) -> str:
+def readJournal(data, id: int) -> str:
 	try:
 		if 'container-title' in data['message']:
 			journal = str(data['message']['container-title'])
 			journal = journal[2:]
 			journal = journal[:-2]
-			printverbose("Found journal: " + printgreen(journal))
+			printverbose("Found journal: " + printgreen(journal), id)
 			return journal
 		else:
-			printverbosewarning("No journal was found online")
+			printverbosewarning("No journal was found online", id)
 			return None
 	except Exception as e:
-		printverboseerror("Failed reading journal. " + str(e))
+		printverboseerror("Failed reading journal. " + str(e), id)
 
-def readLanguage(data) -> str:
+def readLanguage(data, id: int) -> str:
 	try:
 		if 'language' in data['message']:
 			language = str(data['message']['language'])
-			printverbose("Found language: " + printgreen(language))
+			printverbose("Found language: " + printgreen(language), id)
 			return language
 		else:
-			printverbosewarning("No language was found online")
+			printverbosewarning("No language was found online", id)
 			return None
 
 	except Exception as e:
-		printverboseerror("Failed reading language. " + str(e))
+		printverboseerror("Failed reading language. " + str(e), id)
 
-def readPublisher(data) -> str:
+def readPublisher(data, id: int) -> str:
 	try:
 		if 'publisher' in data['message']:
 			publisher = str(data['message']['publisher'])
-			printverbose("Found publisher: " + printgreen(publisher))
+			printverbose("Found publisher: " + printgreen(publisher), id)
 			return publisher
 		else:
-			printverbosewarning("No publisher was found online")
+			printverbosewarning("No publisher was found online", id)
 			return None
-
 	except Exception as e:
 		printverboseerror("Failed reading language. " + str(e))
 
-def readAuthors(data) -> list[dict]:
+def readAuthors(data, id: int) -> list[dict]:
 	try:
 		if 'author' in data['message']:
 			authorlist = [{}]
 			for author in data['message']['author']:
 				if author['sequence'] == "first":
-					if 'family' in author:
+					if 'family' and 'given' in author:
 						authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "first"})
-						printverbose("Found first author: " + printgreen(author['family'] + ", " + author['given']))
+						printverbose("Found first author: " + printgreen(author['family'] + ", " + author['given']), id)
+					elif 'family' in author:
+						authorlist.append({'name': author['family'], 'sequence': "first"})
+						printverbose("Found first author: " + printgreen(author['family']), id)
 					elif 'name' in author:
 						authorlist.append({'name': author['name'], 'sequence': "first"})
-						printverbose("Found first author: " + printgreen(author['name']))						
+						printverbose("Found first author: " + printgreen(author['name']), id)						
 				elif author['sequence'] == "additional":
-					authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "additional"})
-					printverbose("Found additional author: " + printgreen(author['family'] + ", " + author['given']))
+					if 'family' and 'given' in author:
+						authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "first"})
+						printverbose("Found first author: " + printgreen(author['family'] + ", " + author['given']), id)
+					elif 'family' in author:
+						authorlist.append({'name': author['family'], 'sequence': "first"})
+						printverbose("Found first author: " + printgreen(author['family']), id)
+					elif 'name' in author:
+						authorlist.append({'name': author['name'], 'sequence': "first"})
+						printverbose("Found first author: " + printgreen(author['name']), id)
 				else:
-					authorlist.append({'name:': author['family'] + ", " + author['given'], 'sequence': "none"})
-					printverbose("Found author: " + printgreen(author['family'] + ", " + author['given']))
+					if 'family' and 'given' in author:
+						authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "first"})
+						printverbose("Found first author: " + printgreen(author['family'] + ", " + author['given']), id)
+					elif 'family' in author:
+						authorlist.append({'name': author['family'], 'sequence': "first"})
+						printverbose("Found first author: " + printgreen(author['family']), id)
+					elif 'name' in author:
+						authorlist.append({'name': author['name'], 'sequence': "first"})
+						printverbose("Found first author: " + printgreen(author['name']), id)
 			return authorlist
 		else:
-			printverbosewarning("No author was found online")
+			printverbosewarning("No author was found online", id)
 			return None
 
 	except Exception as e:
-		printverboseerror("Failed reading author. " + str(e))
+		printverboseerror("Failed reading author. " + str(e), id)
 
 def query_yes_no(question, default="yes"):
     valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
@@ -377,120 +417,103 @@ def query_yes_no(question, default="yes"):
         else:
             print("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
 
-def checkEntry(entry: dict):
-	global successfullReverseChecks
-	global notFound
-	global noreverse
-	global currentcount
-	global totalCount
+def checkEntry(resultInfo: resultInfo) -> resultInfo:
 	# Check if DOI
-	if 'doi' in entry:
-		printverbose("")
-		printverbose("(" + str(currentcount) + "/" + str(totalCount) + ") Reading info for DOI " + printblue(entry['doi']))		
-		doAnalysis(entry)
+	id = resultInfo.id
+	if 'DOI' in resultInfo.ris:
+		printverbose("Reading info for DOI " + printblue(resultInfo.ris['doi'])), id
+		return doAnalysis(resultInfo)
 	elif noreverse == True:
-		printverbosewarning("(" + str(currentcount) + "/" + str(totalCount) + ") No DOI found, reverse lookup is disabled.")
-		finalentries.append(entry)
-	elif 'title' and 'authors' in entry: # Do reverse search with title and author
+		printverbosewarning("No DOI found, reverse lookup is disabled.")
+		return resultInfo
+	elif 'title' and 'authors' in resultInfo.ris: # Do reverse search with title and author
 		try:
 			# Encode title
-			printverbose("")
-			title = str(entry['title'])
-			logMessage = "(" + str(currentcount) + "/" + str(totalCount) + ") No DOI detected, starting reverse search with title " + printblue(title[:50] + "...")
+			title = str(resultInfo.ris['title'])
+			logMessage = "No DOI detected, starting reverse search with title " + printblue(title[:50] + "...")
 
 			# Get first author
-			firstAuthor = str(entry["authors"][0])		
+			firstAuthor = str(resultInfo.ris["authors"][0])		
 			if firstAuthor:
 				logMessage += " and author " + printblue(firstAuthor + ".")
-			printverbose(logMessage)
-			doi = getCrossrefReverse(title, firstAuthor)
+			printverbose(logMessage, id)
+			doi = getCrossrefReverse(title, firstAuthor, id)
 			if doi:
-				successfullReverseChecks +=1
-				entry['doi'] = doi
-				doAnalysis(entry)
+				resultInfo.successfullReverseChecks +=1
+				resultInfo.ris['DOI'] = doi
+				return doAnalysis(resultInfo)
 			else:
-				# Add dict entry to new list
-				finalentries.append(entry)
-				notFound +=1
-				printverbosewarning("Document could not be matched.")
+				resultInfo.notFound +=1
+				printverbosewarning("Document could not be matched.", id)
+				return resultInfo
 		except:
-			printverboseerror("Failed reverse engineering the entry.")
-			printverboseerror(traceback.format_exc())
-			finalentries.append(entry)
+			printverboseerror("Failed reverse engineering the entry.", id)
+			printverboseerror(traceback.format_exc()), id
+			return resultInfo
 
 	else: #Nothing could be matched
 		printverbosewarning("Document could not be matched.")
-		finalentries.append(entry)
+		return resultInfo
 
 
-def doAnalysis(entry: dict):
+def doAnalysis(resultInfo: resultInfo) -> dict:
 	"""
 	Perform the actual analysis.
 	:param dict: The dictionary entry from RIS
 	"""
-	global foundItems
-	global foundAbstract
-	global foundReferenceType
-	global foundJournal
-	global foundUrl
-	global foundLanguage
-	global foundPublisher
-	global foundAuthors
-	global notFound
-	global noDOI
-	global finalentries
+	id = resultInfo.id
 	try:
-		doi = str(entry['doi'])
-		jsoninfo = getCrossref(doi)
+		doi = str(resultInfo.ris['DOI'])
+		jsoninfo = getCrossref(doi, id)
 		if not jsoninfo: #Crossref returned 404
-			notFound +=1
-			return
-		if not 'abstract' in entry:
-			printverbose("No abstract was detected, searching online.")
-			abstract = readAbstract(jsoninfo)
+			resultInfo.notFound +=1
+			return resultInfo
+		if not 'abstract' in resultInfo.ris:
+			printverbose("No abstract was detected, searching online.", id)
+			abstract = readAbstract(jsoninfo, id)
 			if abstract:
 				# Add abstract to dictionary
-				entry['abstract'] = abstract
-				foundItems +=1
-				foundAbstract +=1
-		if not 'type_of_reference' in entry:
-			printverbose("No reference type was detected, searching online.")
-			type = readReferenceType(jsoninfo)
+				resultInfo.ris['abstract'] = abstract
+				resultInfo.foundAbstract +=1
+				resultInfo.foundAbstract +=1
+		if not 'type_of_reference' in resultInfo.ris:
+			printverbose("No reference type was detected, searching online.", id)
+			type = readReferenceType(jsoninfo, id)
 			if type:
 				# Add type to dictionary
-				entry['type_of_reference'] = type
-				foundItems +=1
-				foundReferenceType +=1
-		if not 'journal_name' and not 'alternate_title3' and not 'alternate_title2' in entry:
-			printverbose("No journal title was detected, searching online.")
-			journal = readJournal(jsoninfo)
+				resultInfo.ris['type_of_reference'] = type
+				resultInfo.foundItems +=1
+				resultInfo.foundReferenceType +=1
+		if not 'journal_name' and not 'alternate_title3' and not 'alternate_title2' in resultInfo.ris:
+			printverbose("No journal title was detected, searching online.", id)
+			journal = readJournal(jsoninfo, id)
 			if journal:
 				# Add journal to dictionary
-				entry['journal_name'] = journal
-				foundItems +=1
-				foundJournal +=1
-		if not 'language' in entry:
-			printverbose("No document language was detected, searching online.")
-			language = readLanguage(jsoninfo)
+				resultInfo.ris['journal_name'] = journal
+				resultInfo.foundItems +=1
+				resultInfo.foundJournal +=1
+		if not 'language' in resultInfo.ris:
+			printverbose("No document language was detected, searching online.", id)
+			language = readLanguage(jsoninfo, id)
 			if language:
 				# Add language to dictionary
-				entry['language'] = language
-				foundItems +=1
-				foundLanguage +=1
-		if not 'access_date' in entry:
-			printverbose("No access date was detected, adding todays date.")
-			entry['access_date'] = str(date.today())
-		if not 'publisher' in entry:
-			printverbose("No publisher was detected, searching online.")
-			publisher = readPublisher(jsoninfo)
+				resultInfo.ris['language'] = language
+				resultInfo.foundItems +=1
+				resultInfo.foundLanguage +=1
+		if not 'access_date' in resultInfo.ris:
+			printverbose("No access date was detected, adding todays date.", id)
+			resultInfo.ris['access_date'] = str(date.today())
+		if not 'publisher' in resultInfo.ris:
+			printverbose("No publisher was detected, searching online.", id)
+			publisher = readPublisher(jsoninfo, id)
 			if publisher:
 				# Add publisher to dictionary
-				entry['publisher'] = publisher
-				foundItems +=1
-				foundPublisher +=1
-		if not 'authors' and not 'first_authors' and not 'secondary_authors' and not 'subsidiary_authors' in entry:
-			printverbose("No author was detected, searching online.")
-			authors = readAuthors(jsoninfo)
+				resultInfo.ris['publisher'] = publisher
+				resultInfo.foundItems +=1
+				resultInfo.foundPublisher +=1
+		if not 'authors' and not 'first_authors' and not 'secondary_authors' and not 'subsidiary_authors' in resultInfo.ris:
+			printverbose("No author was detected, searching online.", id)
+			authors = readAuthors(jsoninfo, id)
 			if authors:
 				# Add authors to dictionary
 				firstAuthors = []
@@ -503,14 +526,14 @@ def doAnalysis(entry: dict):
 						additionalAuthors.append(author['name'])
 					else:
 						otherAuthors.append(author['name'])
-				entry['authors'] = otherAuthors
-				entry['first_authors'] = firstAuthors
-				entry['second_authors'] = additionalAuthors
-				foundItems +=1
-				foundAuthors +=1
-		if 'authors' or 'first_authors' or 'secondary_authors' or 'subsidiary_authors' in entry:
-			printverbose("Authors were detected, searching online for additions.")
-			authors = readAuthors(jsoninfo)
+				resultInfo.ris['authors'] = otherAuthors
+				resultInfo.ris['first_authors'] = firstAuthors
+				resultInfo.ris['second_authors'] = additionalAuthors
+				resultInfo.foundItems +=1
+				resultInfo.foundAuthors +=1
+		if 'authors' or 'first_authors' or 'secondary_authors' or 'subsidiary_authors' in resultInfo.ris:
+			printverbose("Authors were detected, searching online for additions.", id)
+			authors = readAuthors(jsoninfo, id)
 			if authors:
 				# Add authors to dictionary
 				firstAuthors = []
@@ -525,18 +548,18 @@ def doAnalysis(entry: dict):
 						additionalAuthors.append(author['name'])
 					else:
 						otherAuthors.append(author['name'])
-					foundAuthors +=1			
+					resultInfo.foundAuthors +=1			
 				if askConfirm == True:
 					currentAuthors = []
 					# Add all current author to one string
-					if entry.get('authors'):
-						currentAuthors.append(entry.get('authors'))
-					if entry.get('first_authors'):
-						currentAuthors.append(entry.get('first_authors'))
-					if entry.get('secondary_authors'):
-						currentAuthors.append(entry.get('secondary_authors'))
-					if entry.get('subsidiary_authors'):
-						currentAuthors.append(entry.get('subsidiary_authors'))
+					if resultInfo.ris.get('authors'):
+						currentAuthors.append(resultInfo.ris.get('authors'))
+					if resultInfo.ris.get('first_authors'):
+						currentAuthors.append(resultInfo.ris.get('first_authors'))
+					if resultInfo.ris.get('secondary_authors'):
+						currentAuthors.append(resultInfo.ris.get('secondary_authors'))
+					if resultInfo.ris.get('subsidiary_authors'):
+						currentAuthors.append(resultInfo.ris.get('subsidiary_authors'))
 
 					# Add all new authors to string
 					newAuthors = firstAuthors + additionalAuthors + otherAuthors
@@ -546,48 +569,53 @@ def doAnalysis(entry: dict):
 						currentAuthorsString += str(cA)
 					for nA in newAuthors:
 						newAuthorsString += str(nA)
-					print("Current authors: " + currentAuthorsString)
-					print("New authors: " + newAuthorsString)
+					print("Current authors: " + currentAuthorsString, id)
+					print("New authors: " + newAuthorsString, id)
 					choice = query_yes_no("Replace authors?")
 					if choice == True:
-						entry['authors'] = otherAuthors
-						entry['first_authors'] = firstAuthors
-						entry['secondary_authors'] = additionalAuthors
+						resultInfo.ris['authors'] = otherAuthors
+						resultInfo.ris['first_authors'] = firstAuthors
+						resultInfo.ris['secondary_authors'] = additionalAuthors
 				else:
-						entry['authors'] = otherAuthors
-						entry['first_authors'] = firstAuthors
-						entry['secondary_authors'] = additionalAuthors
-				foundItems +=1
+						resultInfo.ris['authors'] = otherAuthors
+						resultInfo.ris['first_authors'] = firstAuthors
+						resultInfo.ris['secondary_authors'] = additionalAuthors
+				resultInfo.foundItems +=1
 		
 		# Add URLs
 		urllist = []
-		if 'url' in entry:
-			urllist.append(entry['url'])
-		additionalURLs = getUrls(jsoninfo)
+		if 'url' in resultInfo.ris:
+			for url in resultInfo.ris['url']:
+				urllist.append(url)
+		additionalURLs = getUrls(jsoninfo, id)
 		if additionalURLs:
 			for url in additionalURLs:
-				urllist.append(url)
-				printverbose("Found document URL: " + printgreen(url))
-				foundUrl +=1
-				foundItems +=1
+				if url not in urllist:
+					urllist.append(url)
+					printverbose("Found document URL: " + printgreen(url), id)
+					resultInfo.foundUrl +=1
+					resultInfo.foundItems +=1
 		
-		# Set url in entry
+		# Set url in resultInfo.ris
 		if len(urllist) > 0:
-			entry['file_attachments1'] = urllist
-			if not 'url' in entry:
-				entry['url'] = urllist[0]
+			resultInfo.ris['url'] = set(urllist) # Remove duplicate url
 
 		if getPDF == True:
-			if 'url' or 'file_attachments1' or 'file_attachments2' in entry:
-				downloadPDF(urllist, str(entry['title']))			
+			if 'url' or 'file_attachments1' or 'file_attachments2' in resultInfo.ris:
+				resultInfo.downloadedPdfs = downloadPDF(urllist,str(resultInfo.ris['title']), resultInfo)
+			else:
+				resultInfo.downloadedPdfs = 0
+		else:
+				resultInfo.downloadedPdfs = 0
 
-		# Add dict entry to new list
-		finalentries.append(entry)
+		# Add dict resultInfo.ris to new list
+		return resultInfo
 	except Exception as ex:
 		printerror("An error occured for analysis.")
 		printverboseerror(traceback.format_exc())
+		return resultInfo
 			
-def getUrls(jsoninfo: json) -> list:
+def getUrls(jsoninfo: json, id="") -> list:
 	try:
 		urls = []
 		if 'link' in jsoninfo['message']:
@@ -597,14 +625,14 @@ def getUrls(jsoninfo: json) -> list:
 				elif url['content-type'] == "unspecified":
 					urls.append(url['URL'])
 				else:
-					printverbosewarning("Crossref did not return any PDF urls.")
+					printverbosewarning("Crossref did not return any PDF urls.", id)
 			return urls
 		else:
-			printverbosewarning("Crossref couldn't find any urls.")
+			printverbosewarning("Crossref couldn't find any urls.", id)
 			return None
 	except Exception:
-		printverboseerror("Failed retrieving URL.")
-		printverboseerror(traceback.format_exc())
+		printverboseerror("Failed retrieving URL.", id)
+		printverboseerror(traceback.format_exc(), id)
 		return None
 
 if __name__ == "__main__":
@@ -629,6 +657,7 @@ if __name__ == "__main__":
 			filepathOriginal = None
 
 	# Get filepath for saving output
+	filepathResult = ""
 	while not filepathResult:
 		filepathResult = input(r"Enter filepath for saving result (e.g. C:\Users\Max): ")
 		if not os.path.exists(filepathResult):
@@ -646,34 +675,81 @@ if __name__ == "__main__":
 
 	try:
 		p = Path('tests', 'data', filepathOriginal)
+
+		# Overwrite rispy default list, as rispy only works with one url per document
+		rispy.LIST_TYPE_TAGS.extend(["UR", "M1", "L1", "L2"])
 		entries = rispy.load(p, encoding='utf-8')
 		# Create new dictionary for later final output writing
 		totalCount = len(entries)
 		print("Detected " + printblue(str(len(entries))) + " items in ris file.")
-		currentcount = 0
-		if verboseoutput == True:
-			for entry in entries:
-				currentcount +=1
-				checkEntry(entry)
-		else:
-			for entry in tqdm(entries, desc ="Analyzing RIS", ascii=' ='):
-				currentcount +=1
-				checkEntry(entry)
+
+		inputList = []
+		for i in entries:
+			entry = resultInfo()
+			entry.ris = i
+			entry.total = len(entries)
+			entry.id = entries.index(i) + 1
+			entry.filepathResult = filepathResult
+			inputList.append(entry)
+
+		results: list[resultInfo]
+
+		if not args.processes:
+			if totalCount > os.cpu_count():
+				processes_count = os.cpu_count()
+			else:
+				processes_count = totalCount
+		else: 
+			printwarning("Will overwrite default processes count with " + str(args.processes))
+		print("Launching " + str(processes_count) + " processes, please wait.")
+		with WorkerPool(n_jobs=processes_count) as pool:
+			results = pool.map(checkEntry, inputList, progress_bar=not verboseoutput, progress_bar_options={'desc': 'Analyzing RIS', 'unit': 'entries', 'ascii': ' █'})
+
 		
 		# Now write entries into output file
 		print()
-		print(printgreen("Done with reading all entries,") + " now saving file to " + str(filepathResult))
+		print("Done with reading all entries, processed " + printgreen(str(len(results))) + " entries.")
+		print("Now saving file to " + printblue(str(filepathResult)))
 
 		# Get Timestamp
 		now = datetime.now() # current date and time
 		timestamp = now.strftime("%Y%m%d%H%M%S")
 
+		foundItems = 0
+		foundAbstract = 0
+		foundReferenceType = 0
+		foundJournal = 0
+		foundUrl = 0
+		foundAuthors = 0
+		foundLanguage = 0
+		foundPublisher = 0
+		successfullReverseChecks = 0
+		downloadedPdfs = 0
+		notFound = 0
+		noDOI = 0
+		finalentries = [{}]
+		for i in results:
+			foundItems += i.foundItems
+			foundAbstract += i.foundAbstract
+			foundReferenceType += i.foundReferenceType
+			foundJournal += i.foundJournal
+			foundUrl += i.foundUrl
+			foundAuthors += i.foundAuthors
+			foundLanguage += i.foundLanguage
+			foundPublisher += i.foundPublisher
+			successfullReverseChecks += i.successfullReverseChecks
+			if downloadedPdfs is not None:
+				downloadedPdfs += i.downloadedPdfs
+			notFound += i.notFound
+			noDOI += i.noDOI
+			finalentries.append(i.ris)
+		
 		try:
 			with open(os.path.join(str(filepathResult), 'output_' + timestamp + '.ris'), 'w', encoding="utf-8") as bibliography_file:
 				rispy.dump(finalentries, bibliography_file)
 		except Exception as ex:
 			printerror("Failed saving file. " + str(ex))
-
+			
 		print(printgreen("Done! ") + "We have added " + printblue(str(foundItems)) + " categories to the list.")
 		print("Added abstracts:\t" + printgreen(str(foundAbstract)))
 		print("Added reference types:\t" + printgreen(str(foundReferenceType)))
@@ -688,5 +764,5 @@ if __name__ == "__main__":
 		input("Press enter to exit.")
 	except Exception as ex:
 		printerror("Error opening file")
-		printerror(str(ex))
+		printerror(traceback.format_exc())
 		input("Press enter to exit.")

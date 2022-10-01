@@ -23,8 +23,9 @@ Currently supported data to be added are:
 - ```--verbose``` parameter to print verbose logging.
 - ```--confirm``` parameter to confirm before replacing data.
 - ```--getpdf``` parameter to search for available PDFs and download them.
-- ```--noreverse``` parameter to skip reverse lookup (caution!).
+- ```--noreverse``` parameter to skip reverse lookup.
+- ```--processes``` parameter to set number of processes (default is count of your cpu).
+
 
 ## Todo
-- [ ] Add multithreading
 - [ ] Add return header check (current limit of API is 50r/s)
