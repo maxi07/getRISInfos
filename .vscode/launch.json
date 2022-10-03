@@ -5,13 +5,25 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Testpy",
+            "type": "python",
+            "request": "launch",
+            "module": "testpy",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "stopOnEntry": true
+        },
+        {
             "name": "Python: verbose",
             "type": "python",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--verbose", "--getpdf"]
+            "args": [
+                "--verbose",
+                "--getpdf"
+            ]
         },
         {
             "name": "Python: Standard",
@@ -20,8 +32,9 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--getpdf"]
-
+            "args": [
+                "--getpdf"
+            ]
         }
     ]
 }

@@ -12,6 +12,7 @@ getPDF = False
 noreverse = False
 totalCount = 0
 processes_count = 1
+CIPHERS = "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-SHA256:AES256-SHA"
 
 # Define Error Logging
 def printerror(ex, id = "undefined"):
@@ -56,11 +57,13 @@ try:
 	from datetime import datetime, date
 	from colorama import init
 	import traceback
+	import random
 	from difflib import SequenceMatcher
 	from urllib.parse import quote  
 	import re
 	from mpire import WorkerPool
-	from multiprocessing import Manager
+	from requests import Response
+	import requests
 	init()
 except ModuleNotFoundError as ex:
 	printerror("The app could not be started, a module is missing.")
@@ -71,26 +74,6 @@ except Exception as ex:
 	printerror("An unknown error occured while loading modules." + str(ex))
 	exit(2)
 
-# Parse Arguments
-parser = ArgumentParser()
-parser.add_argument("--verbose", help="Print detailed output.", action="store_true")
-parser.add_argument("--confirm", help="Ask confirmation before replacing details.", action="store_true")
-parser.add_argument("--getpdf", help="Try to download pdf if available.", action="store_true")
-parser.add_argument("--noreverse", help="Disable the reverse lookup if no DOI is present.", action="store_true")
-parser.add_argument("--processes", help="Set the number of processes (be careful).", action="store", type=int)
-
-
-args = parser.parse_args()
-if args.verbose:
-	verboseoutput = True
-if args.confirm:
-	askConfirm = True
-if args.getpdf:
-	getPDF = True
-if args.noreverse:
-	noreverse = True
-if args.processes:
-	processes_count = args.processes
 
 # Create class for counting and result returning
 class resultInfo():
@@ -110,6 +93,7 @@ class resultInfo():
 	ris: dict
 	id= 0
 	total= 0
+	args = None
 
 # Calls crossref with given DOI number and downloads input
 def getCrossref(doi: str, id: int) -> json:
@@ -124,14 +108,16 @@ def getCrossref(doi: str, id: int) -> json:
 			printverbosewarning("Crossref couldn't match " + doi, id)
 		else:
 			printverboseerror("Crossref returned " + str(e.code), id)
+		return None
 	except Exception as ex:
 		printverboseerror("Failed downloading data from Crossref.", id)
 		printverboseerror(traceback.format_exc(), id)
 		return None
 
-def getCrossrefReverse(title: str, author: str, id: int) -> json:
+def getCrossrefReverse(title: str, author: str, id: int) -> str:
 	"""
-	Calls crossref with given title and downloads input"""
+	Calls crossref with given title and downloads input.
+	Returns DOI as str."""
 	try:
 		# Encode title
 		originalTitle = title
@@ -207,7 +193,7 @@ def similar(a, b) -> float:
 	return SequenceMatcher(None, a, b).ratio()
 
 # Try to find a pdf to download
-def downloadPDF(urllist: list, filename: str, resultInfo: resultInfo) -> resultInfo:
+def downloadPDF(urllist: list, filename: str, resultInfo: resultInfo) -> int:
 	"""
 	Downloads the file if the mimetype pdf is detected.
 	"""
@@ -223,25 +209,51 @@ def downloadPDF(urllist: list, filename: str, resultInfo: resultInfo) -> resultI
 	printverbosewarning("No PDF could be found.", id)
 	return 0
 
+def isPDF(url: str) -> bool:
+	"""
+	Does the url contain a downloadable resource
+	"""
+	h = requests.head(url, allow_redirects=True)
+	header = h.headers
+	content_type = header.get('content-type')
+	if 'application/pdf' in content_type.lower():
+		return True
+	else:
+		return False
 
 def downloadFile(url: str, name: str, resultInfo: resultInfo) -> bool:
 	"""
-	Checks mimetype, if PDF and download successfull returns True
+	Downloads PDF and returns True is successfull
 	"""
 	try:
 		id = resultInfo.id
 		printverbose("Reading filetype for " + printblue(url), id)
-		response =  urllib.request.urlopen(url)
-		info = response.info()
-		if info.get_content_type() == "application/pdf":
+		user_agents_list = [
+		'Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+		'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.83 Safari/537.36',
+		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36']
+		hdr = {
+			"User-Agent": random.choice(user_agents_list),
+			"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+			"Accept-Language": "en-US,en;q=0.5",
+			"Accept-Encoding": "gzip, deflate",
+			"Connection": "keep-alive",
+			"Upgrade-Insecure-Requests": "1",
+			"Sec-Fetch-Dest": "document",
+			"Sec-Fetch-Mode": "navigate",
+			"Sec-Fetch-Site": "none",
+			"Sec-Fetch-User": "?1",
+			"Cache-Control": "max-age=0",
+		}
+		
+		if isPDF(url):
 			printverbose("Detected " + url + " as PDF file.", id)
 			filename = name + ".pdf"
 			p = Path(resultInfo.filepathResult, filename)
-			with open(p, 'wb') as output:
-				data = response.read()
-				output.write(data)
-				printverbose("Saved PDF at " + printgreen(str(p.absolute())), id)
-				return True
+			response = requests.get(url, headers=hdr, allow_redirects=True)
+			open(p, 'wb').write(response.content)
+			printverbose("Saved PDF at " + printgreen(str(p.absolute())), id)
+			return True
 		else:
 			printverbosewarning("Requested filetype for url " + str(url) + " is not PDF, skipping download.", id)
 			return False
@@ -418,9 +430,22 @@ def query_yes_no(question, default="yes"):
             print("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
 
 def checkEntry(resultInfo: resultInfo) -> resultInfo:
+	global verboseoutput
+	global getPDF
+	global askConfirm
+	global noreverse
+	if resultInfo.args.verbose:
+		verboseoutput = True
+	if resultInfo.args.confirm:
+		askConfirm = True
+	if resultInfo.args.getpdf:
+		getPDF = True
+	if resultInfo.args.noreverse:
+		noreverse = True
+
 	# Check if DOI
 	id = resultInfo.id
-	if 'DOI' in resultInfo.ris:
+	if 'doi' in resultInfo.ris:
 		printverbose("Reading info for DOI " + printblue(resultInfo.ris['doi'])), id
 		return doAnalysis(resultInfo)
 	elif noreverse == True:
@@ -440,7 +465,7 @@ def checkEntry(resultInfo: resultInfo) -> resultInfo:
 			doi = getCrossrefReverse(title, firstAuthor, id)
 			if doi:
 				resultInfo.successfullReverseChecks +=1
-				resultInfo.ris['DOI'] = doi
+				resultInfo.ris['doi'] = doi
 				return doAnalysis(resultInfo)
 			else:
 				resultInfo.notFound +=1
@@ -453,6 +478,7 @@ def checkEntry(resultInfo: resultInfo) -> resultInfo:
 
 	else: #Nothing could be matched
 		printverbosewarning("Document could not be matched.")
+		resultInfo.notFound +=1
 		return resultInfo
 
 
@@ -463,7 +489,7 @@ def doAnalysis(resultInfo: resultInfo) -> dict:
 	"""
 	id = resultInfo.id
 	try:
-		doi = str(resultInfo.ris['DOI'])
+		doi = str(resultInfo.ris['doi'])
 		jsoninfo = getCrossref(doi, id)
 		if not jsoninfo: #Crossref returned 404
 			resultInfo.notFound +=1
@@ -635,7 +661,27 @@ def getUrls(jsoninfo: json, id="") -> list:
 		printverboseerror(traceback.format_exc(), id)
 		return None
 
+def importRis(filepath: str) -> list[dict]:
+	p = Path(filepath)
+
+	# Overwrite rispy default list, as rispy only works with one url per document
+	rispy.LIST_TYPE_TAGS.extend(["UR", "M1", "L1", "L2"])
+	entries = rispy.load(p, encoding='utf-8')
+	# Create new dictionary for later final output writing
+	print("Detected " + printblue(str(len(entries))) + " items in ris file.")
+	return entries
+
+
 if __name__ == "__main__":
+		# Parse Arguments
+	parser = ArgumentParser()
+	parser.add_argument("--verbose", help="Print detailed output.", action="store_true")
+	parser.add_argument("--confirm", help="Ask confirmation before replacing details.", action="store_true")
+	parser.add_argument("--getpdf", help="Try to download pdf if available.", action="store_true")
+	parser.add_argument("--noreverse", help="Disable the reverse lookup if no DOI is present.", action="store_true")
+	parser.add_argument("--processes", help="Set the number of processes (be careful).", action="store", type=int)
+	args = parser.parse_args()
+
 	# Get filepath to RIS file
 	filepathOriginal = ""
 	while not filepathOriginal:
@@ -674,14 +720,8 @@ if __name__ == "__main__":
 
 
 	try:
-		p = Path('tests', 'data', filepathOriginal)
-
-		# Overwrite rispy default list, as rispy only works with one url per document
-		rispy.LIST_TYPE_TAGS.extend(["UR", "M1", "L1", "L2"])
-		entries = rispy.load(p, encoding='utf-8')
-		# Create new dictionary for later final output writing
+		entries = importRis(filepathOriginal)
 		totalCount = len(entries)
-		print("Detected " + printblue(str(len(entries))) + " items in ris file.")
 
 		inputList = []
 		for i in entries:
@@ -690,6 +730,7 @@ if __name__ == "__main__":
 			entry.total = len(entries)
 			entry.id = entries.index(i) + 1
 			entry.filepathResult = filepathResult
+			entry.args = args
 			inputList.append(entry)
 
 		results: list[resultInfo]
@@ -701,9 +742,10 @@ if __name__ == "__main__":
 				processes_count = totalCount
 		else: 
 			printwarning("Will overwrite default processes count with " + str(args.processes))
+			processes_count = args.processes
 		print("Launching " + str(processes_count) + " processes, please wait.")
 		with WorkerPool(n_jobs=processes_count) as pool:
-			results = pool.map(checkEntry, inputList, progress_bar=not verboseoutput, progress_bar_options={'desc': 'Analyzing RIS', 'unit': 'entries', 'ascii': ' █'})
+			results = pool.map(checkEntry, inputList, progress_bar=not args.verbose, progress_bar_options={'desc': 'Analyzing RIS', 'unit': 'entries', 'ascii': ' █'})
 
 		
 		# Now write entries into output file
@@ -757,7 +799,7 @@ if __name__ == "__main__":
 		print("Added document urls:\t" + printgreen(str(foundUrl)))
 		print("Added languages:\t" + printgreen(str(foundLanguage)))
 		print("Added authors:\t\t" + printgreen(str(foundAuthors)))
-		if getPDF == True:
+		if args.getpdf == True:
 			print("Downloaded PDFs:\t" + printgreen(str(downloadedPdfs)))
 		print("Reverse checks:\t\t" + printgreen(str(successfullReverseChecks)))
 		print("Articles not found:\t" + printyellow(str(notFound)))
