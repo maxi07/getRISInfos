@@ -34,9 +34,7 @@ jobs:
         with:
           tag_name: ${{ github.event.head_commit.message }}
           release_name: ${{ github.event.head_commit.message }}
-          overwrite: true
-          body: |
-            Test Release v1.0.0
+          body_path: doc/RELEASE.md
           draft: false
           prerelease: false
       - name: Upload Release Asset
