@@ -659,6 +659,8 @@ def doAnalysis(resultInfo: resultInfo) -> dict:
 		return resultInfo
 	except Exception as ex:
 		printerror("An error occured for analysis.")
+		if 'doi' in resultInfo.ris:
+			printerror("DOI: " + str(resultInfo.ris['doi']))
 		printverboseerror(traceback.format_exc())
 		return resultInfo
 			
