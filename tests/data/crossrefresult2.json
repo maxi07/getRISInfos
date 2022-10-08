@@ -1,0 +1,213 @@
+{
+	"status": "ok",
+	"message-type": "work",
+	"message-version": "1.0.0",
+	"message": {
+		"indexed": {
+			"date-parts": [
+				[
+					2022,
+					3,
+					30
+				]
+			],
+			"date-time": "2022-03-30T06:13:59Z",
+			"timestamp": 1648620839687
+		},
+		"reference-count": 3,
+		"publisher": "Walter de Gruyter GmbH",
+		"issue": "12",
+		"content-domain": {
+			"domain": [],
+			"crossmark-restriction": false
+		},
+		"short-container-title": [],
+		"published-print": {
+			"date-parts": [
+				[
+					2017,
+					12,
+					18
+				]
+			]
+		},
+		"abstract": "<jats:title>Kurzfassung<\/jats:title>\n               <jats:p>Die Digitalisierung ist im produzierenden Gewerbe in vielen KMU immer noch schwach ausgepr\u00e4gt. Viele Unternehmen verf\u00fcgen nicht \u00fcber die notwendigen Ressourcen, um das Thema Digitalisierung voranzutreiben. Es dominieren weiterhin die konventionellen Methoden zum Informationsaustausch in der Produktion. Mit dem Low-Cost-Digitalisierungsansatz soll genau f\u00fcr diese Unternehmen die Chance zum Einstieg in die Digitalisierung mit einfachen, aber dennoch effizienten Mitteln erm\u00f6glicht werden.<\/jats:p>",
+		"DOI": "10.3139\/104.111832",
+		"type": "journal-article",
+		"created": {
+			"date-parts": [
+				[
+					2017,
+					12,
+					21
+				]
+			],
+			"date-time": "2017-12-21T13:35:49Z",
+			"timestamp": 1513863349000
+		},
+		"page": "895-898",
+		"source": "Crossref",
+		"is-referenced-by-count": 0,
+		"title": [
+			"Low-Cost-Digitalisierung in der Produktion"
+		],
+		"prefix": "10.1515",
+		"volume": "112",
+		"author": [
+			{
+				"given": "Hannes",
+				"family": "H\u00f6nig",
+				"sequence": "first",
+				"affiliation": [
+					{
+						"name": "Regensburg"
+					}
+				]
+			},
+			{
+				"given": "Bj\u00f6rn",
+				"family": "Lorenz",
+				"sequence": "additional",
+				"affiliation": [
+					{
+						"name": "Regensburg"
+					}
+				]
+			}
+		],
+		"member": "374",
+		"published-online": {
+			"date-parts": [
+				[
+					2017,
+					12,
+					14
+				]
+			]
+		},
+		"reference": [
+			{
+				"key": "2021062307590075879_j_104.111832_ref_001_w2aab3b7c38b1b6b1ab1ab1Aa",
+				"doi-asserted-by": "publisher",
+				"first-page": "594",
+				"volume-title": "Industrie 4.0 in Produktion, Automatisierung und Logistik",
+				"year": "2014",
+				"DOI": "10.1007\/978-3-658-04682-8"
+			},
+			{
+				"key": "2021062307590075879_j_104.111832_ref_002_w2aab3b7c38b1b6b1ab1ab2Aa",
+				"first-page": "16",
+				"volume-title": "LCIA \u2013 Low Cost Intelligent Automation",
+				"year": "2006"
+			},
+			{
+				"key": "2021062307590075879_j_104.111832_ref_003_w2aab3b7c38b1b6b1ab1ab3Aa",
+				"journal-title": "zeit-online"
+			}
+		],
+		"container-title": [
+			"Zeitschrift f\u00fcr wirtschaftlichen Fabrikbetrieb"
+		],
+		"original-title": [],
+		"language": "en",
+		"link": [
+			{
+				"URL": "https:\/\/www.degruyter.com\/document\/doi\/10.3139\/104.111832\/xml",
+				"content-type": "application\/xml",
+				"content-version": "vor",
+				"intended-application": "text-mining"
+			},
+			{
+				"URL": "https:\/\/www.degruyter.com\/document\/doi\/10.3139\/104.111832\/pdf",
+				"content-type": "unspecified",
+				"content-version": "vor",
+				"intended-application": "similarity-checking"
+			}
+		],
+		"deposited": {
+			"date-parts": [
+				[
+					2021,
+					6,
+					23
+				]
+			],
+			"date-time": "2021-06-23T21:37:55Z",
+			"timestamp": 1624484275000
+		},
+		"score": 1,
+		"resource": {
+			"primary": {
+				"URL": "https:\/\/www.degruyter.com\/document\/doi\/10.3139\/104.111832\/html"
+			}
+		},
+		"subtitle": [
+			"Erste Schritte zur Vernetzung von Produktionsteilnehmern in KMU"
+		],
+		"short-title": [],
+		"issued": {
+			"date-parts": [
+				[
+					2017,
+					12,
+					14
+				]
+			]
+		},
+		"references-count": 3,
+		"journal-issue": {
+			"issue": "12",
+			"published-online": {
+				"date-parts": [
+					[
+						2017,
+						12,
+						14
+					]
+				]
+			},
+			"published-print": {
+				"date-parts": [
+					[
+						2017,
+						12,
+						18
+					]
+				]
+			}
+		},
+		"alternative-id": [
+			"10.3139\/104.111832"
+		],
+		"URL": "http:\/\/dx.doi.org\/10.3139\/104.111832",
+		"relation": {},
+		"ISSN": [
+			"2511-0896",
+			"0947-0085"
+		],
+		"issn-type": [
+			{
+				"value": "2511-0896",
+				"type": "electronic"
+			},
+			{
+				"value": "0947-0085",
+				"type": "print"
+			}
+		],
+		"subject": [
+			"Management Science and Operations Research",
+			"Strategy and Management",
+			"General Engineering"
+		],
+		"published": {
+			"date-parts": [
+				[
+					2017,
+					12,
+					14
+				]
+			]
+		}
+	}
+}
