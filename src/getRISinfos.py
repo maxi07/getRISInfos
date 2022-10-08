@@ -216,8 +216,11 @@ def isPDF(url: str) -> bool:
 	h = requests.head(url, allow_redirects=True)
 	header = h.headers
 	content_type = header.get('content-type')
-	if 'application/pdf' in content_type.lower():
-		return True
+	if content_type:
+		if 'application/pdf' in content_type.lower():
+			return True
+		else:
+			return False
 	else:
 		return False
 
@@ -235,7 +238,7 @@ def cleanDateStr(input: str, id=0) -> str:
 
 def cleanRISYear(input: resultInfo, id=0) -> resultInfo:
 	if 'year' in input.ris:
-		input.ris['year'] = cleanDateStr(input.ris['year'])
+		input.ris['year'] = cleanDateStr(input.ris['year'], id)
 		return input
 
 def downloadFile(url: str, name: str, resultInfo: resultInfo) -> bool:
@@ -652,7 +655,7 @@ def doAnalysis(resultInfo: resultInfo) -> dict:
 				resultInfo.downloadedPdfs = 0
 
 		# Clean the year strings
-		resultInfo = cleanRISYear(resultInfo)
+		resultInfo = cleanRISYear(resultInfo, id)
 
 
 		# Add dict resultInfo.ris to new list
@@ -741,7 +744,6 @@ if __name__ == "__main__":
 			filepathResult = filepathResult[:-1]
 		filepathResult = Path(filepathResult)
 
-
 	try:
 		entries = importRis(filepathOriginal)
 		totalCount = len(entries)
@@ -750,6 +752,7 @@ if __name__ == "__main__":
 		for i in entries:
 			entry = resultInfo()
 			entry.ris = i
+			entry.foundItems = 0
 			entry.total = len(entries)
 			entry.id = entries.index(i) + 1
 			entry.filepathResult = filepathResult
@@ -794,20 +797,25 @@ if __name__ == "__main__":
 		noDOI = 0
 		finalentries = [{}]
 		for i in results:
-			foundItems += i.foundItems
-			foundAbstract += i.foundAbstract
-			foundReferenceType += i.foundReferenceType
-			foundJournal += i.foundJournal
-			foundUrl += i.foundUrl
-			foundAuthors += i.foundAuthors
-			foundLanguage += i.foundLanguage
-			foundPublisher += i.foundPublisher
-			successfullReverseChecks += i.successfullReverseChecks
-			if downloadedPdfs is not None:
-				downloadedPdfs += i.downloadedPdfs
-			notFound += i.notFound
-			noDOI += i.noDOI
-			finalentries.append(i.ris)
+			try:
+				foundItems += i.foundItems
+				foundAbstract += i.foundAbstract
+				foundReferenceType += i.foundReferenceType
+				foundJournal += i.foundJournal
+				foundUrl += i.foundUrl
+				foundAuthors += i.foundAuthors
+				foundLanguage += i.foundLanguage
+				foundPublisher += i.foundPublisher
+				successfullReverseChecks += i.successfullReverseChecks
+				if downloadedPdfs is not None:
+					downloadedPdfs += i.downloadedPdfs
+				notFound += i.notFound
+				noDOI += i.noDOI
+			except:
+				printerror("Failed counting rsults.")
+				printerror(traceback.format_exc())
+			finally:
+				finalentries.append(i.ris)
 		
 		try:
 			with open(os.path.join(str(filepathResult), 'output_' + timestamp + '.ris'), 'w', encoding="utf-8") as bibliography_file:
