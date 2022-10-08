@@ -64,6 +64,7 @@ try:
 	from mpire import WorkerPool
 	from requests import Response
 	import requests
+	import time
 	init()
 except ModuleNotFoundError as ex:
 	printerror("The app could not be started, a module is missing.")
@@ -83,6 +84,7 @@ class resultInfo():
 	foundJournal = 0
 	foundUrl = 0
 	foundAuthors = 0
+	foundYear = 0
 	foundLanguage = 0
 	foundPublisher = 0
 	successfullReverseChecks = 0
@@ -209,20 +211,30 @@ def downloadPDF(urllist: list, filename: str, resultInfo: resultInfo) -> int:
 	printverbosewarning("No PDF could be found.", id)
 	return 0
 
-def isPDF(url: str) -> bool:
+def isPDF(url: str, id=0) -> bool:
 	"""
 	Does the url contain a downloadable resource
 	"""
-	h = requests.head(url, allow_redirects=True)
-	header = h.headers
-	content_type = header.get('content-type')
-	if content_type:
-		if 'application/pdf' in content_type.lower():
-			return True
-		else:
-			return False
-	else:
-		return False
+	retries = 3
+	for i in range(retries):
+		try:
+			h = requests.head(url, allow_redirects=True)
+			header = h.headers
+			content_type = header.get('content-type')
+			if content_type:
+				if 'application/pdf' in content_type.lower():
+					return True
+				else:
+					return False
+			else:
+				return False
+		except requests.exceptions.SSLError:
+			printverboseerror("Failed request to check PDF due to too many requests (SSL Error).", id)
+		except Exception:
+			printverboseerror("Failed PDF check.", id)
+		printverbose("[" + str(i+1) + "/" + str(retries) + "] Will retry in 10 seconds", id)
+		time.sleep(10)
+
 
 def cleanDateStr(input: str, id=0) -> str:
 	if input[0:4].isdigit():
@@ -239,6 +251,8 @@ def cleanDateStr(input: str, id=0) -> str:
 def cleanRISYear(input: resultInfo, id=0) -> resultInfo:
 	if 'year' in input.ris:
 		input.ris['year'] = cleanDateStr(input.ris['year'], id)
+		return input
+	else:
 		return input
 
 def downloadFile(url: str, name: str, resultInfo: resultInfo) -> bool:
@@ -266,7 +280,7 @@ def downloadFile(url: str, name: str, resultInfo: resultInfo) -> bool:
 			"Cache-Control": "max-age=0",
 		}
 		
-		if isPDF(url):
+		if isPDF(url, id):
 			printverbose("Detected " + url + " as PDF file.", id)
 			filename = name + ".pdf"
 			p = Path(resultInfo.filepathResult, filename)
@@ -296,6 +310,31 @@ def downloadFile(url: str, name: str, resultInfo: resultInfo) -> bool:
 		printverboseerror("Failed downloading pdf. ", id)
 		printverboseerror(traceback.format_exc())
 		return False
+
+def readYear(data:json, id: int) -> str:
+	try:
+		if 'published' in data['message']:
+			detectedDate = str(data['message']['published']['date-parts'][0][0])
+			if detectedDate[0:4].isdigit():
+				detectedDate = detectedDate[0:4]
+				printverbose("Found year: " + printgreen(detectedDate), id)
+				return detectedDate
+			else:
+				return None
+		elif 'issued' in data['message']:
+			detectedDate = str(data['message']['published']['date-parts'][0][0])
+			if detectedDate[0:4].isdigit():
+				detectedDate = detectedDate[0:4]
+				printverbose("Found year: " + printgreen(detectedDate), id)
+				return detectedDate
+			else:
+				return None
+		else:
+			printverbosewarning("No year was detected.", id)
+			return None
+	except Exception:
+		printverboseerror("Failed reading year. ", id)
+		printverboseerror(traceback.format_exc(), id)
 
 
 def readAbstract(data: json, id: int) -> str:
@@ -388,7 +427,7 @@ def readPublisher(data, id: int) -> str:
 def readAuthors(data, id: int) -> list[dict]:
 	try:
 		if 'author' in data['message']:
-			authorlist = [{}]
+			authorlist = []
 			for author in data['message']['author']:
 				if author['sequence'] == "first":
 					if 'family' and 'given' in author:
@@ -402,24 +441,24 @@ def readAuthors(data, id: int) -> list[dict]:
 						printverbose("Found first author: " + printgreen(author['name']), id)						
 				elif author['sequence'] == "additional":
 					if 'family' and 'given' in author:
-						authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "first"})
-						printverbose("Found first author: " + printgreen(author['family'] + ", " + author['given']), id)
+						authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "additional"})
+						printverbose("Found additional author: " + printgreen(author['family'] + ", " + author['given']), id)
 					elif 'family' in author:
-						authorlist.append({'name': author['family'], 'sequence': "first"})
-						printverbose("Found first author: " + printgreen(author['family']), id)
+						authorlist.append({'name': author['family'], 'sequence': "additional"})
+						printverbose("Found additional author: " + printgreen(author['family']), id)
 					elif 'name' in author:
-						authorlist.append({'name': author['name'], 'sequence': "first"})
-						printverbose("Found first author: " + printgreen(author['name']), id)
+						authorlist.append({'name': author['name'], 'sequence': "additional"})
+						printverbose("Found additional author: " + printgreen(author['name']), id)
 				else:
 					if 'family' and 'given' in author:
-						authorlist.append({'name': author['family'] + ", " + author['given'], 'sequence': "first"})
-						printverbose("Found first author: " + printgreen(author['family'] + ", " + author['given']), id)
+						authorlist.append({'name': author['family'] + ", " + author['given']})
+						printverbose("Found author: " + printgreen(author['family'] + ", " + author['given']), id)
 					elif 'family' in author:
-						authorlist.append({'name': author['family'], 'sequence': "first"})
-						printverbose("Found first author: " + printgreen(author['family']), id)
+						authorlist.append({'name': author['family']})
+						printverbose("Found author: " + printgreen(author['family']), id)
 					elif 'name' in author:
-						authorlist.append({'name': author['name'], 'sequence': "first"})
-						printverbose("Found first author: " + printgreen(author['name']), id)
+						authorlist.append({'name': author['name']})
+						printverbose("Found author: " + printgreen(author['name']), id)
 			return authorlist
 		else:
 			printverbosewarning("No author was found online", id)
@@ -557,6 +596,13 @@ def doAnalysis(resultInfo: resultInfo) -> dict:
 				resultInfo.ris['publisher'] = publisher
 				resultInfo.foundItems +=1
 				resultInfo.foundPublisher +=1
+		if not 'year' in resultInfo.ris:
+			printverbose("No publishing year was detected, searching online.", id)
+			year = readYear(jsoninfo, id)
+			if year:
+				resultInfo.ris['year'] = year
+				resultInfo.foundItems +=1
+				resultInfo.foundYear +=1
 		if not 'authors' and not 'first_authors' and not 'secondary_authors' and not 'subsidiary_authors' in resultInfo.ris:
 			printverbose("No author was detected, searching online.", id)
 			authors = readAuthors(jsoninfo, id)
@@ -787,6 +833,7 @@ if __name__ == "__main__":
 		foundAbstract = 0
 		foundReferenceType = 0
 		foundJournal = 0
+		foundYear = 0
 		foundUrl = 0
 		foundAuthors = 0
 		foundLanguage = 0
@@ -795,7 +842,7 @@ if __name__ == "__main__":
 		downloadedPdfs = 0
 		notFound = 0
 		noDOI = 0
-		finalentries = [{}]
+		finalentries = []
 		for i in results:
 			try:
 				foundItems += i.foundItems
@@ -804,6 +851,7 @@ if __name__ == "__main__":
 				foundJournal += i.foundJournal
 				foundUrl += i.foundUrl
 				foundAuthors += i.foundAuthors
+				foundYear += i.foundYear
 				foundLanguage += i.foundLanguage
 				foundPublisher += i.foundPublisher
 				successfullReverseChecks += i.successfullReverseChecks
@@ -811,11 +859,10 @@ if __name__ == "__main__":
 					downloadedPdfs += i.downloadedPdfs
 				notFound += i.notFound
 				noDOI += i.noDOI
-			except:
-				printerror("Failed counting rsults.")
-				printerror(traceback.format_exc())
-			finally:
 				finalentries.append(i.ris)
+			except:
+				printerror("Item " + str(i+1) + " is empty.")
+				printerror(traceback.format_exc())
 		
 		try:
 			with open(os.path.join(str(filepathResult), 'output_' + timestamp + '.ris'), 'w', encoding="utf-8") as bibliography_file:
@@ -830,6 +877,7 @@ if __name__ == "__main__":
 		print("Added document urls:\t" + printgreen(str(foundUrl)))
 		print("Added languages:\t" + printgreen(str(foundLanguage)))
 		print("Added authors:\t\t" + printgreen(str(foundAuthors)))
+		print("Addes years:\t\t" + printgreen(str(foundYear)))
 		if args.getpdf == True:
 			print("Downloaded PDFs:\t" + printgreen(str(downloadedPdfs)))
 		print("Reverse checks:\t\t" + printgreen(str(successfullReverseChecks)))
