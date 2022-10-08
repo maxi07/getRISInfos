@@ -27,9 +27,8 @@ def testCrossrefNoMatch():
 def testisPDF():
     source = DATA_DIR / "importSingle.ris"
     entry = getRISinfos.importRis(source)[0]
-    for i in range(len(entry['url'])):
-        assert getRISinfos.isPDF(entry["url"][0]) == False
-        assert getRISinfos.isPDF(entry["url"][1]) == True
+    assert getRISinfos.isPDF(entry["url"][0]) == False
+    assert getRISinfos.isPDF(entry["url"][1]) == True
 
 def testCleanYearStr():
     source = DATA_DIR / "importSingle.ris"
