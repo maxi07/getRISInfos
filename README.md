@@ -15,9 +15,11 @@ Currently supported data to be added are:
 - Authors
 
 ## How to use
-1. Provide filepath of _.ris_ rile (eg. C:\Users\Max\test.ris)
-2. Provide output path (eg. C:\Users\Max\)
-3. Wait until finished
+1. Start the main file in src/getRISInfos.py
+2. Provide optional arguments (eg. ```--getpdf```) and start the program with the command ```python getRISInfos.py --getpdf```
+3. Provide filepath of _.ris_ rile (eg. C:\Users\Max\test.ris)
+4. Provide output path (eg. C:\Users\Max\)
+5. Wait until finished
 
 ## Options
 - ```--verbose``` parameter to print verbose logging.
