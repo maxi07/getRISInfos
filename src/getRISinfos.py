@@ -221,6 +221,23 @@ def isPDF(url: str) -> bool:
 	else:
 		return False
 
+def cleanDateStr(input: str, id=0) -> str:
+	if input[0:4].isdigit():
+		if input.endswith("/"):
+			newpy = input[0:4]
+			printverbose("Cleaned PY string from '" + input + "' to '" + newpy + "'.", id)
+			return newpy
+		else:
+			return input
+	else:
+		printverbose("Input string to clean PY is not a valid year!", id)
+		return input
+
+def cleanRISYear(input: resultInfo, id=0) -> resultInfo:
+	if 'year' in input.ris:
+		input.ris['year'] = cleanDateStr(input.ris['year'])
+		return input
+
 def downloadFile(url: str, name: str, resultInfo: resultInfo) -> bool:
 	"""
 	Downloads PDF and returns True is successfull
@@ -633,6 +650,10 @@ def doAnalysis(resultInfo: resultInfo) -> dict:
 				resultInfo.downloadedPdfs = 0
 		else:
 				resultInfo.downloadedPdfs = 0
+
+		# Clean the year strings
+		resultInfo = cleanRISYear(resultInfo)
+
 
 		# Add dict resultInfo.ris to new list
 		return resultInfo

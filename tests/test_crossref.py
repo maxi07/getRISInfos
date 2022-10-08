@@ -1,7 +1,5 @@
 import pytest
 from pathlib import Path
-
-import requests
 from src import getRISinfos
 
 DATA_DIR = Path(__file__).parent.resolve() / "data"
@@ -32,3 +30,21 @@ def testisPDF():
     for i in range(len(entry['url'])):
         assert getRISinfos.isPDF(entry["url"][0]) == False
         assert getRISinfos.isPDF(entry["url"][1]) == True
+
+def testCleanYearStr():
+    source = DATA_DIR / "importSingle.ris"
+    entry = getRISinfos.importRis(source)[0]
+    resInfo = getRISinfos.resultInfo
+    resInfo.ris = entry
+    newresInfo = getRISinfos.cleanRISYear(resInfo)
+    assert newresInfo.ris['year'] == "2020"
+
+def testCleanPY():
+    y1 = "2017"
+    y2 = "2018//"
+    y3 = "2019///"
+    y4 = "blabla"
+    assert getRISinfos.cleanDateStr(y1) == "2017"
+    assert getRISinfos.cleanDateStr(y2) == "2018"
+    assert getRISinfos.cleanDateStr(y3) == "2019"
+    assert getRISinfos.cleanDateStr(y4) == "blabla"
