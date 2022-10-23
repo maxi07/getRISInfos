@@ -60,7 +60,6 @@ try:
 	import random
 	from difflib import SequenceMatcher
 	from urllib.parse import quote  
-	import re
 	from mpire import WorkerPool
 	from requests import Response
 	import requests
