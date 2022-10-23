@@ -44,3 +44,10 @@ def testAuthors():
     authorList2 = [{"name": "Hönig, Hannes", "sequence": "first"}, {"name": "Lorenz, Björn", "sequence": "additional"}]
     detectedAuthors2 = getRISinfos.readAuthors(data2, id=0)
     assert detectedAuthors2 == authorList2
+
+def testSimilar():
+    a = "This is a test string 0123456789 with CAPS"
+    b = "this is a test string 0123456789 with caps"
+    c = "this is a test string 0123456789 with caps and additional text"
+    assert getRISinfos.similar(a, b) == 1
+    assert getRISinfos.similar(b, c) >= 0.8
