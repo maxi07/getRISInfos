@@ -65,6 +65,7 @@ try:
 	from requests import Response
 	import requests
 	import time
+	import re
 	init()
 except ModuleNotFoundError as ex:
 	printerror("The app could not be started, a module is missing.")
@@ -737,11 +738,21 @@ def importRis(filepath: str) -> list[dict]:
 	p = Path(filepath)
 
 	# Overwrite rispy default list, as rispy only works with one url per document
-	rispy.LIST_TYPE_TAGS.extend(["UR", "M1", "L1", "L2"])
-	entries = rispy.load(p, encoding='utf-8')
-	# Create new dictionary for later final output writing
-	print("Detected " + printblue(str(len(entries))) + " items in ris file.")
-	return entries
+	
+	try:
+		rispy.LIST_TYPE_TAGS.extend(["UR", "M1", "L1", "L2"])
+		entries = rispy.load(p, encoding='utf-8')
+		print("Detected " + printblue(str(len(entries))) + " items in ris file.")
+		return entries
+	except OSError as e:
+		printerror("RIS is not properly formatted, probably missing article type.")
+		printerror(traceback.format_exc())
+		return None
+	except Exception as e:
+		printerror(str(e))
+		printerror(traceback.format_exc())
+		return None
+
 
 
 if __name__ == "__main__":
@@ -752,12 +763,17 @@ if __name__ == "__main__":
 	parser.add_argument("--getpdf", help="Try to download pdf if available.", action="store_true")
 	parser.add_argument("--noreverse", help="Disable the reverse lookup if no DOI is present.", action="store_true")
 	parser.add_argument("--processes", help="Set the number of processes (be careful).", action="store", type=int)
+	parser.add_argument("--input", help='Define filepath for input RIS.', type=str)
+	parser.add_argument("--output", help='Define filepath for output RIS.', type=str)
 	args = parser.parse_args()
 
 	# Get filepath to RIS file
 	filepathOriginal = ""
 	while not filepathOriginal:
-		filepathOriginal = input("Enter full filepath to .ris file: ")
+		if args.input:
+			filepathOriginal = args.input
+		else:
+			filepathOriginal = input("Enter full filepath to .ris file: ")
 		# Test if input starts with " and remove
 		if filepathOriginal.startswith('"'):
 			filepathOriginal = filepathOriginal[1:]
@@ -777,7 +793,10 @@ if __name__ == "__main__":
 	# Get filepath for saving output
 	filepathResult = ""
 	while not filepathResult:
-		filepathResult = input(r"Enter filepath for saving result (e.g. C:\Users\Max): ")
+		if args.output:
+			filepathResult = args.output
+		else:
+			filepathResult = input(r"Enter filepath for saving result (e.g. C:\Users\Max): ")
 		if not os.path.exists(filepathResult):
 			printerror("File does not exist!")
 			filepathResult = None
@@ -792,6 +811,8 @@ if __name__ == "__main__":
 
 	try:
 		entries = importRis(filepathOriginal)
+		if entries == None:
+			exit(4)
 		totalCount = len(entries)
 
 		inputList = []
