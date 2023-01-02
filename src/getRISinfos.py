@@ -12,7 +12,6 @@ getPDF = False
 noreverse = False
 totalCount = 0
 processes_count = 1
-CIPHERS = "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-SHA256:AES256-SHA"
 
 # Define Error Logging
 def printerror(ex, id = "undefined"):
@@ -87,6 +86,7 @@ class resultInfo():
 	foundYear = 0
 	foundLanguage = 0
 	foundPublisher = 0
+	foundISSN = 0
 	successfullReverseChecks = 0
 	downloadedPdfs = 0
 	notFound = 0
@@ -311,7 +311,7 @@ def downloadFile(url: str, name: str, resultInfo: resultInfo) -> bool:
 		printverboseerror(traceback.format_exc())
 		return False
 
-def readYear(data:json, id: int) -> str:
+def readYear(data:json, id: int) -> list:
 	try:
 		if 'published' in data['message']:
 			detectedDate = str(data['message']['published']['date-parts'][0][0])
@@ -335,6 +335,19 @@ def readYear(data:json, id: int) -> str:
 	except Exception:
 		printverboseerror("Failed reading year. ", id)
 		printverboseerror(traceback.format_exc(), id)
+
+
+def readISSN(data: json, id: int) -> str:
+	results = []
+	try:
+		if 'ISSN' in data['message']:
+			for entry in data['message']['ISSN']:
+				results.append(entry)
+	except Exception as e:
+		printverboseerror("Failed reading ISSN", id)
+		printverboseerror(traceback.format_exc(), id)
+	finally:
+		return results
 
 
 def readAbstract(data: json, id: int) -> str:
@@ -577,6 +590,13 @@ def doAnalysis(resultInfo: resultInfo) -> dict:
 				resultInfo.ris['journal_name'] = journal
 				resultInfo.foundItems +=1
 				resultInfo.foundJournal +=1
+		if not 'issn' in resultInfo.ris:
+			printverbose("No ISSN was detected, searching online.", id)
+			issn = readISSN(jsoninfo, id)
+			if issn:
+				resultInfo.ris['issn'] = issn
+				resultInfo.foundISSN +=1
+				resultInfo.foundItems +=1
 		if not 'language' in resultInfo.ris:
 			printverbose("No document language was detected, searching online.", id)
 			language = readLanguage(jsoninfo, id)
@@ -858,6 +878,7 @@ if __name__ == "__main__":
 		foundAuthors = 0
 		foundLanguage = 0
 		foundPublisher = 0
+		foundISSN = 0
 		successfullReverseChecks = 0
 		downloadedPdfs = 0
 		notFound = 0
@@ -871,6 +892,7 @@ if __name__ == "__main__":
 				foundJournal += i.foundJournal
 				foundUrl += i.foundUrl
 				foundAuthors += i.foundAuthors
+				foundISSN += i.foundISSN
 				foundYear += i.foundYear
 				foundLanguage += i.foundLanguage
 				foundPublisher += i.foundPublisher
@@ -894,6 +916,7 @@ if __name__ == "__main__":
 		print("Added abstracts:\t" + printgreen(str(foundAbstract)))
 		print("Added reference types:\t" + printgreen(str(foundReferenceType)))
 		print("Added journal names:\t" + printgreen(str(foundJournal)))
+		print("Added ISSN:\t\t" + printgreen(str(foundISSN)))
 		print("Added document urls:\t" + printgreen(str(foundUrl)))
 		print("Added languages:\t" + printgreen(str(foundLanguage)))
 		print("Added authors:\t\t" + printgreen(str(foundAuthors)))
