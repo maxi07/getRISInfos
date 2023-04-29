@@ -69,6 +69,7 @@ except ModuleNotFoundError as ex:
 	printerror("The app could not be started, a module is missing.")
 	printerror("Please run command pip install -r requirements.txt")
 	printerror(ex)
+	input("Press enter to exit.")
 	exit(2)
 except Exception as ex:
 	printerror("An unknown error occured while loading modules." + str(ex))
@@ -855,6 +856,8 @@ if __name__ == "__main__":
 		else: 
 			printwarning("Will overwrite default processes count with " + str(args.processes))
 			processes_count = args.processes
+		if getPDF:
+			printwarning("Detected getpdf option, will try to download fulltext if available.")
 		print("Launching " + str(processes_count) + " processes, please wait.")
 		with WorkerPool(n_jobs=processes_count) as pool:
 			results = pool.map(checkEntry, inputList, progress_bar=not args.verbose, progress_bar_options={'desc': 'Analyzing RIS', 'unit': 'entries', 'ascii': ' █'})
